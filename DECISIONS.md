@@ -1,0 +1,351 @@
+# Decisions
+
+Each entry: date, decision, reason. Only decided items are built.
+
+## 2026-11-08 — Scope (from BRIEF.md)
+
+- **Decision:** Version 1 covers two discovery layers: network and cloud. Code scanning and other layers come after the competition.
+- **Reason:** Fixed in the project brief before planning started.
+
+## 2026-11-08 — Step 1: TLS probe
+
+### Language and toolchain
+
+- **Decision:** Go only, latest stable release (go1.27.3 on 2026-11-08, pinned in `go.mod`). No cgo, no OpenSSL bindings. TLS via the standard library `crypto/tls`; the negotiated key-exchange group is read from `ConnectionState.CurveID`.
+- **Reason:** Pure-Go `crypto/tls` can offer the hybrid post-quantum group X25519MLKEM768 and reports which group the server picked. That's what tells a PQ-ready endpoint from a vulnerable one. No cgo keeps the build to a single static toolchain with no native dependencies.
+
+### Dependency vulnerability checking
+
+- **Decision:** `govulncheck` is part of the workflow.
+- **Reason:** Catch known vulnerabilities in the Go toolchain and dependencies of a security tool.
+
+### Test targets (authorised scope)
+
+- **Decision:** The probe is run only against:
+  - Local TLS test servers on this machine (OpenSSL 3.5.6+ `s_server`, or nginx in Docker), with known configurations:
+    - a) hybrid PQ: groups X25519MLKEM768 + x25519
+    - b) classical only: groups x25519 / P-256
+    - c) legacy: TLS 1.2 max, RSA-2048 certificate
+  - The author's own domain: `altaieh.tech`
+  - Nothing else.
+- **Reason:** Only assets owned by, or explicitly authorised for, the author may be scanned. Local servers have known configurations, so the right answers are known in advance and the probe can be checked against them.
+
+### Output
+
+- **Decision:** JSON by default, plus a flag for a human-readable table in the terminal.
+- **Reason:** JSON feeds the later inventory/classification steps; the table is for people reading results directly.
+
+## 2026-11-08 — After step 1 review
+
+### Name
+
+- **Decision:** The tool is called **Hasr**. Go module `github.com/yaltayeh/hasr`, binary `hasr`.
+- **Reason:** Author's choice.
+
+### Repository and publication
+
+- **Decision:** Public GitHub repository by Wednesday 2026-11-11. No LICENSE yet (undecided; do not add one). Before the first push: no private keys, certificates or credentials committed; test-lab certificates are generated at runtime and gitignored.
+- **Reason:** The submission (deadline 2026-11-12) points to a public repo. Anything committed to a public repo stays in its history.
+
+### Step order
+
+- **Decision:** Step 2 = multi-handshake scan + classification. Step 3 = owner mapping file + Mosca priority + report organised by the SAMA circular's clauses. Cloud discovery after step 3, only if time remains.
+- **Reason:** The SAMA mapping is what separates Hasr from generic TLS scanners, so the report comes before the cloud layer.
+
+### Certificate chain verification
+
+- **Decision:** Keep skipping verification during the handshake. Afterwards, verify the chain against the system roots and record the result as separate fields (verified true/false + error). A verification failure never fails the scan. *(Fields superseded on 2026-11-08 by "Certificate verification fields" below.)*
+- **Reason:** The inventory must still see self-signed and private-CA certificates, but whether a certificate is publicly trusted is useful information in itself.
+
+### Group names
+
+- **Decision:** IANA TLS Supported Groups names (`x25519`, `secp256r1`, `X25519MLKEM768`) plus the numeric codepoint.
+- **Reason:** Standard identifiers that don't depend on any one library.
+
+### JSON output
+
+- **Decision:** Not frozen; step 2 changes it. The new shape is proposed and approved before implementing. Per target: a list of probes (what was offered; result accepted / rejected / not_tested; what was negotiated) plus summary fields. Includes `schema_version`. Must stay mappable to CycloneDX CBOM later.
+- **Reason:** One handshake can't show what a server supports. The shape has to record each attempt and its outcome.
+
+### Step 2 probes
+
+- **Decision:** Per target: default offer; hybrid only (X25519MLKEM768); classical only (x25519, secp256r1, secp384r1); MaxVersion TLS 1.2; TLS 1.1 only; TLS 1.0 only. Anything Go cannot test (finite-field DHE, SSLv3, groups Go doesn't implement, the handshake signature scheme) is recorded as `not_tested`, never as not supported.
+- **Reason:** The inventory must never claim something it didn't check.
+
+### Test lab server (c)
+
+- **Decision:** Server (c) also accepts TLS 1.0 and 1.1 (`-cipher 'DEFAULT@SECLEVEL=0'`).
+- **Reason:** Gives the scan a real legacy finding. OpenSSL 3+ refuses TLS 1.0/1.1 at its default security level.
+
+### CI (later)
+
+- **Decision:** In CI, govulncheck must be built with the project's toolchain: `golang/govulncheck-action` with `go-version-file: go.mod`.
+- **Reason:** A govulncheck built with an older Go cannot load Go 1.27 code (seen in step 1).
+
+## 2026-11-08 — Step 2 design
+
+### Classification: two independent fields
+
+- **Decision:** No single class. Two fields instead:
+  - `key_exchange`: `hybrid` | `classical` | `unknown`, the harvest-now-decrypt-later axis. `hybrid` = any probe negotiated a hybrid group. `classical` = handshakes succeeded and none did. `unknown` = nothing accepted, or the evidence is inconclusive.
+  - `legacy`: `true` | `false`, with reasons (TLS 1.0/1.1 accepted, weak suites accepted).
+  - TLS 1.2 max with no 1.0/1.1 → `key_exchange` classical, `legacy` false, with the reason "no TLS 1.3: hybrid key exchange needs a protocol upgrade first". That reason stays; it will feed the crypto-agility rating later.
+  - Table: two columns, KEX and LEGACY, instead of CLASS.
+- **Reason:** The two lead to different actions. Disabling TLS 1.0/1.1 is a config change; enabling hybrid may need a library or protocol upgrade. A single "worst wins" class would hide that altaieh.tech already has hybrid.
+
+### Probe results
+
+- **Decision:** `accepted` | `rejected` | `error` | `not_tested`. `rejected` = the server sent a TLS alert. `error` = timeout, refused, reset, or closed without an alert. Timeout or reset is retried once before `error` is recorded. `error` never clears a rule and sets `complete` = false.
+- **Reason:** An attempt that got no answer must never read as "not supported".
+
+### Legacy probe offers
+
+- **Decision:** `tls10_only` and `tls11_only` offer every cipher suite Go implements. A new probe, `tls12_weak`, is TLS 1.2 only and offers only RSA key transport, 3DES and RC4 suites. A negotiated weak suite goes into the legacy reasons. Before relying on it, a full handshake must be verified with an RSA key transport suite and with 3DES against a temporary `s_server`. If RC4 can't be verified, it is recorded as offered but unverified in the probe's detail field.
+- **Reason:** With Go's default offer only, a server that speaks TLS 1.0 only with RSA key transport or 3DES would be marked rejected and look clean.
+
+### Certificate verification fields
+
+- **Decision:** Record each check separately, so one failure doesn't hide the others:
+  - `chain_trusted`: system roots, using the certificates the server sent as intermediates;
+  - `hostname_match`: checked when the target is a hostname; `not_checked` for IP targets;
+  - `validity`: the certificate's dates.
+- **Reason:** A self-signed, expired or wrong-name certificate are different findings with different fixes.
+
+### JSON shape 0.2
+
+- **Decision:** As proposed on 2026-11-08, with the changes above. Top level: `schema_version`, `tool`, `generated_at`, `targets`. Per target:
+  - `probes`: `offered`, captured from the real ClientHello; `result`; `negotiated`;
+  - `certificates`: deduplicated by SHA-256 fingerprint and referenced from probes;
+  - `summary`.
+- **Reason:** Records each attempt and its outcome, and stays mappable to CycloneDX CBOM (fingerprint → `bom-ref`, codepoints → cipher-suite identifiers).
+
+### Repository content
+
+- **Decision:** `BRIEF.md` stays out of the public repo: gitignored and kept locally. `DECISIONS.md` stays in the repo. Before the first push, the author reviews every line in it that mentions them personally.
+- **Reason:** The brief holds personal background and working instructions, not project content.
+
+## 2026-11-08 — After step 2 review
+
+### Legacy: third value
+
+- **Decision:** `legacy` can also be `unknown`: when there is no legacy finding and any of `tls10_only`, `tls11_only` or `tls12_weak` didn't give an answer. Shown as `?` in the table.
+- **Reason:** A missing answer must not read as a clean result. "error never clears a rule" needs a value that says "not cleared".
+
+### 3DES and RC4 verification
+
+- **Decision:** Not verified before submission. Until then they stay "offered; not yet verified": per probe in the JSON, printed once under the table. Verify after submission with Docker, published on 127.0.0.1 only.
+- **Rule:** Never run a test server on all interfaces.
+- **Reason:** Deadline. Every way to verify them now either exposes a weak-cipher server on the LAN or costs time needed for step 3.
+
+### DECISIONS.md wording
+
+- **Decision:** Refer to the person as "the author". Corrections say what was wrong and what fixed it, not who found it. No details of the development machine.
+- **Reason:** The file is published.
+
+## 2026-11-08 — Step 3 inputs
+
+### Regulatory source text
+
+- **Decision:** The report is organised by SAMA Circular No. 482021280, dated 1448/03/14 H (27 August 2026), signed by the Deputy Governor for Supervision. The circular numbers its clauses First to Fourth; the report calls them Clause 1–4. Clause 2's two bullets are labelled 2a and 2b; that labelling is ours.
+- **Decision (superseded later the same day, see "Step 3 answers"):** ~~Use the author's English translation, labelled "unofficial translation".~~
+- **Decision:** The official Arabic PDF is kept in `refs/`, which is gitignored and must never be committed.
+- **Reason:** The report must cite the regulation exactly. The official PDF is not the author's to publish.
+
+### Clause 2 is about the procedure's completeness
+
+- **Decision:** Clause 2 asks for the *accuracy and completeness of the procedures*, not only an inventory. The report's Clause 2 section therefore carries, as evidence:
+  - the completeness figure;
+  - the not-tested section;
+  - the not-assessed section;
+  - the needs-owner-input section.
+- **Reason:** Those are what show the inventory procedure is complete and accurate.
+
+### Clause 2 sections
+
+- **Decision:** Under Clause 2, as evidence of completeness:
+  - **Completeness figure.**
+  - **Needs owner input:** scanned, but not in the mapping file. Findings shown, priority `unknown`.
+  - **Mapped but not scanned:** in the mapping file, but not scanned.
+  - **Not assessed:** unreachable or incomplete, listed with the error. Never given a low priority.
+  - **Not tested:** the scanner's stated limits:
+    - SSLv3;
+    - finite-field DHE;
+    - groups no probe offers;
+    - the handshake signature scheme;
+    - 3DES and RC4, which are offered but not yet verified.
+- **Reason:** Clause 2 asks for complete and accurate procedures. Gaps and limits are part of that evidence, not footnotes.
+
+### What each clause section says
+
+- **Decision:** Every clause section states plainly what Hasr provides and what the institution still has to do itself. Each section shows the clause's due date:
+  - Clause 1: end of Q1 2027.
+  - Clause 2: end of Q4 2026.
+  - Clauses 3 and 4: no date in the circular.
+- **Decision:** Clause 3 carries the recommended actions per finding (in step 3 scope). Clause 4 states that scans are repeatable and that change tracking is planned (change tracking itself is not in step 3).
+- **Reason:** The tool covers only part of Clauses 1, 3 and 4. The report must not suggest it covers the rest.
+
+## 2026-11-08 — Step 3 answers
+
+### Clause text
+
+- **Decision (superseded later the same day, see "Policy values"):** ~~Until the official English text is provided, sections are labelled "Clause 1–4 (summary)" and nothing is quoted.~~
+- **Decision:** The official English text is not available yet. The report quotes the author's English translation verbatim, labelled "unofficial translation"; the official text is the Arabic circular.
+- **Open:** the nine differences found between the translation and the Arabic PDF are awaiting the author's decision. The translation is quoted unchanged until then.
+
+### Mapping file
+
+- **Decision:** CSV, no third-party dependency. Entries match scan targets on exact `host:port`.
+- **Decision:** Columns:
+  - `target`
+  - `system`
+  - `service`
+  - `owner`
+  - `data_classification`
+  - `data_shelf_life_years` (X)
+  - `migration_years` (Y)
+  - `third_party`
+  - `constraints`
+- **Decision:** Classification labels default to the Saudi NDMO four levels (Top Secret, Secret, Restricted, Public), and they are configurable.
+- **Reason:** Spreadsheet-friendly, matching how institutions inventory today; no dependencies.
+
+### Mosca: X, Y, Z
+
+- **Decision:** X comes from a default per classification level, overridable per entry. The values will be given by the author.
+- **Decision:** Y comes from a default derived from the scan, overridable per entry. The scan categories are: already hybrid / TLS 1.3 classical / no TLS 1.3. The values will be given by the author.
+- **Decision:** If `third_party` is not in-house and Y is empty, Y is unknown, so priority is unknown. A vendor's timeline is never guessed.
+- **Decision:** Z is one global value, with its source printed in the report. The source can be a threat estimate or a regulatory date. The value will be given by the author. Scenarios come later.
+- **Reason:** X belongs to the data, Y to the system, Z to the threat; each comes from the people who know it.
+
+### What Mosca applies to
+
+- **Decision:** A hybrid target that also accepts classical key exchange is "mitigated for PQ-capable clients": lower priority, not at risk. It carries a note that residual risk depends on client support.
+- **Decision:** Certificates are listed with their algorithms; no Mosca priority in step 3.
+- **Reason:** Harvest-now-decrypt-later concerns key exchange; authentication can't be broken retroactively.
+
+### Priority
+
+- **Decision:** No named levels yet. Each asset gets at risk yes/no plus the margin (X + Y − Z), sorted by margin.
+
+### Report
+
+- **Decision:** A single self-contained HTML report, with the JSON written alongside. Markdown later.
+- **Decision:** Two commands:
+  - `hasr scan` writes JSON. It takes targets from the command line and/or `--targets mapping.csv`.
+  - `hasr report` reads the scan JSON and the mapping CSV.
+- **Decision:** A recommended action for each finding is in step 3. The crypto-agility rating and change tracking wait until after submission.
+- **Reason:** Re-reporting without re-scanning, and the scan JSON is kept as evidence.
+
+## 2026-11-08 — Policy values
+
+### Where the values live
+
+- **Decision:** All values are in `policy/default.json`, committed to the repo; no numbers are built into the code. `hasr report` reads it by default (`--policy` overrides).
+- **Decision:** Every value carries its source text, and the report prints the source next to the value.
+- **Reason:** Reviewable, citable values; a reader can see where each number comes from.
+
+### Z
+
+- **Decision:** Z is the calendar date 2030-12-31, converted to years on each run.
+- **Source text:** "NIST IR 8547 (final, 27 October 2026) deprecates all quantum-vulnerable public-key algorithms after 2030. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date."
+- **Links:** https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf and https://www.enisa.europa.eu/media/56885
+- **Verified by the author:**
+  - against the final NIST IR 8547 PDF (October 2026). Sections 4.1.1 and 4.1.2 deprecate all quantum-vulnerable digital signature and key-establishment algorithms after 2030 and disallow them after 2035, at all approved strengths;
+  - against the ENISA presentation of the EU roadmap, which names finance among the critical infrastructure due by end of 2030.
+
+### X (data shelf life)
+
+- **Decision:**
+  - Public: 0 years. Source: "No confidentiality requirement."
+  - Restricted, Secret, Top Secret: 10 years. Source: "Minimum record-keeping period under Article 12 of the Saudi Anti-Money Laundering Law (SAMA Rulebook, record keeping): at least ten years from the end of the relationship or transaction. A floor, not a ceiling; override per entry."
+
+### Y (migration time)
+
+- **Decision:**
+  - Already hybrid: 0 years. Source: "Hasr assumption: hybrid key exchange is already in place, so key exchange needs no migration. Certificates are listed separately; client support is not measured by Hasr and remains for the institution to track."
+  - TLS 1.3 with classical key exchange: 1 year. Source: "Hasr assumption: a configuration change or library upgrade within one change cycle."
+  - No TLS 1.3: 3 years. Source: "Hasr assumption: a protocol or platform upgrade."
+- **Decision:** The report marks both of the assumption values (1 and 3 years) "assumption; override per entry".
+
+### Implementation details approved 2026-11-08 (formerly provisional 17–20)
+
+- Policy file format:
+    - every value is `{years, source, assumption}`;
+    - Z is `{date, source}`;
+    - unknown fields, a value without a source, and negative numbers are errors.
+- The Z conversion: (date − report date) in days ÷ 365.25, rounded to 0.01 years (4.15 on 2026-11-08). The margin is rounded the same way.
+- The source text for "already hybrid: 0" started as a draft by Claude; the author approved it and added a sentence (see Y above).
+- The values table sits in Clause 2a, right under the priority table, rather than in the appendix.
+
+## 2026-11-08 — Report refinements
+
+### Margin of mitigated assets
+
+- **Decision:** For targets marked "Mitigated for PQ-capable clients", the margin says it applies only to clients without ML-KEM support, e.g. "+5.85 (clients without ML-KEM only)".
+- **Reason:** A reader shouldn't wonder why a mitigated asset has a positive margin.
+
+### Translation review
+
+- **Decision:** The nine differences between the author's translation and the Arabic PDF are written out in full for review, each with the author's text, the Arabic, the proposed change and the reason (`refs/translation-review.md`). The author's text stays in the report until the author decides on each one.
+- **Outcome:** all nine accepted.
+  - 1, 2, 3, 8, 9: the proposed wording is applied. For 8: "comprehensiveness" and "taking into account, at a minimum, the following:".
+  - 4, 5, 6: the subject line, preamble and closing are added to `refs/sama-482021280-unofficial-translation.txt`. The report prints:
+    - the subject line, as the circular's title;
+    - the sentence "Accordingly, financial institutions are required to take the following actions:", before the clauses;
+    - the distribution list (difference 1), labelled "Distribution".
+
+    It does not print the rest of the preamble or the closing.
+  - 7: the 2a/2b labels stay, with the note that they are Hasr's.
+- **Reason:** Fidelity to the Arabic original.
+
+## Corrections
+
+- **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.
+
+## Verification log
+
+- **2026-11-08, RSA key transport:** verified. `tls12_weak` completed full handshakes with `TLS_RSA_WITH_AES_128_GCM_SHA256` and `TLS_RSA_WITH_AES_128_CBC_SHA` against temporary OpenSSL `s_server`s on 127.0.0.1:8446 (TLS 1.2, one suite each). The `default` probe was rejected by both, which confirms why the probe is needed.
+- **2026-11-08, 3DES and RC4:** NOT verified. The available OpenSSL builds have no 3DES or RC4 suites. The one local library that has both cannot listen on 127.0.0.1 only, so it wasn't run. For now, the probes that offer these suites (`tls10_only`, `tls11_only`, `tls12_weak`) say "offered; not yet verified" in their detail field. The decided rule for RC4 is applied to 3DES too, pending a decision.
+
+## Provisional — NOT yet decided (awaiting confirmation)
+
+Needed to build and run steps 1–3. Each one stays provisional until confirmed or changed.
+
+1. Layout: `package main` at the repo root, split by concern. Scan: `main.go`, `probes.go`, `certs.go`, `summary.go`, `output.go`, `names.go`. Report: `report_cmd.go`, `mapping.go`, `policy.go`, `assess.go`, `html.go`. Plus `*_test.go`; test lab in `testlab/`.
+2. Leaf certificate only in the output (intermediates are used for verification but not recorded). Explicit `host:port` required (no default port). Timeout 5s per handshake attempt. Exit codes: 0 ok, 1 some target had no accepted probe (or was invalid), 2 usage/output error.
+2a. JSON additions beyond the approved shape: `tool.go`, probe `attempts`, summary `inconclusive_probes`, certificate `chain_error` / `hostname_error`.
+2b. When a leaf is expired or not yet valid, chain trust is evaluated at a moment inside its validity window, so expiry shows under `validity` only.
+2c. In JSON, `legacy` is a string, `yes` | `no` | `unknown` (it was a boolean). `schema_version` went to 0.3 because the field's type changed.
+2d. A Go-side handshake failure without a server alert (e.g. the server picks a version we didn't offer) is recorded as `error`, not `rejected`.
+3. Test lab: OpenSSL `s_server` (3.5.6 or later), not Docker. Ports 127.0.0.1:8443/8444/8445. Self-signed certs: ECDSA P-256 for (a) and (b), RSA-2048 for (c), all SHA-256. Target (b) is one server offering both x25519 and P-256.
+4. Go 1.27.3 comes from the `go.mod` pin plus Go's built-in toolchain download; no system-wide Go installation is changed.
+5. govulncheck v1.9.0 runs locally, built with go1.27.3, until CI exists.
+6. `.gitignore` also ignores the `hasr` binary and any `*.key`, `*.pem`, `*.crt`, `*.p12`, `*.pfx`, `.env` anywhere in the tree.
+7. `hasr scan` takes flags before targets; the old bare `hasr host:port` form is gone.
+8. *(Superseded by "Policy values"; kept for history.)* Policy (X, Y, Z and classification labels):
+   - a JSON file passed with `--policy`;
+   - without one, built-in defaults: the NDMO labels and no X, Y or Z values;
+   - Z is in years from the report date.
+9. The scan-derived default Y applies only when `third_party` says `in-house` (any letter case). An empty `third_party` counts as not stated, so Y is unknown.
+10. Mapping CSV:
+    - columns are matched by name, in any order;
+    - errors: unknown, missing or repeated columns; duplicate targets; labels outside the list; negative or non-numeric years;
+    - a spreadsheet byte-order mark is accepted, and years may be decimals.
+11. Priority:
+    - order: at risk (largest margin first), then unknown, then not at risk, then mitigated;
+    - "at risk" means margin > 0 (strict, as in X + Y > Z);
+    - a hybrid target that accepts no classical key exchange is "not at risk".
+12. Sections:
+    - an unmapped target goes to "needs owner input" even if it is also unreachable;
+    - a mapped target with `complete` = false goes to "not assessed", even if it has partial findings;
+    - Clause 3 also lists the findings of targets that need owner input, under their own heading.
+13. Wording of findings and recommended actions (`assess.go`, `findings`). This includes a "quantum-vulnerable signature" finding for every RSA, ECDSA or Ed25519 certificate, and certificate trust, hostname and validity findings.
+14. Report output:
+    - `hasr report` writes `hasr-report.html` and `hasr-report.json` by default (`--html`, `--json`);
+    - the report JSON has `kind: hasr-report` and `schema_version` 0.1.
+15. The clause titles and the "What Hasr provides / What the institution still has to do" texts (`html.go`, `clauses`) are drafts in Hasr's own words. The clause text itself is the author's translation, verbatim.
+16. `testlab/mapping.csv` holds fictional sample rows marked "(sample)". `altaieh.tech` is left unmapped on purpose, so it shows under "needs owner input".
+21. Source links:
+    - live in a `links` list next to each source (`z.links`, or `links` on any value);
+    - only absolute https URLs are accepted;
+    - the report shows them as plain links, which is the only kind of external reference the page has.
+22. The report JSON carries `mosca.margin_scope` ("clients without ML-KEM only"). It is set on mitigated assets that have a margin.

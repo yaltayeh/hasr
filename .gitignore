@@ -1,0 +1,17 @@
+# Kept local, not published
+/BRIEF.md
+/refs/
+
+# Build output
+/hasr
+
+# Test-lab material generated at runtime (keys, certificates, logs, pids)
+/testlab/run/
+
+# Never commit key material or credentials, wherever they appear
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.env

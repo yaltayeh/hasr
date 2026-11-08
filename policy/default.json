@@ -1,0 +1,56 @@
+{
+  "classification_levels": [
+    {
+      "label": "Top Secret",
+      "shelf_life": {
+        "years": 10,
+        "source": "Minimum record-keeping period under Article 12 of the Saudi Anti-Money Laundering Law (SAMA Rulebook, record keeping): at least ten years from the end of the relationship or transaction. A floor, not a ceiling; override per entry."
+      }
+    },
+    {
+      "label": "Secret",
+      "shelf_life": {
+        "years": 10,
+        "source": "Minimum record-keeping period under Article 12 of the Saudi Anti-Money Laundering Law (SAMA Rulebook, record keeping): at least ten years from the end of the relationship or transaction. A floor, not a ceiling; override per entry."
+      }
+    },
+    {
+      "label": "Restricted",
+      "shelf_life": {
+        "years": 10,
+        "source": "Minimum record-keeping period under Article 12 of the Saudi Anti-Money Laundering Law (SAMA Rulebook, record keeping): at least ten years from the end of the relationship or transaction. A floor, not a ceiling; override per entry."
+      }
+    },
+    {
+      "label": "Public",
+      "shelf_life": {
+        "years": 0,
+        "source": "No confidentiality requirement."
+      }
+    }
+  ],
+  "migration_years_default": {
+    "already_hybrid": {
+      "years": 0,
+      "source": "Hasr assumption: hybrid key exchange is already in place, so key exchange needs no migration. Certificates are listed separately; client support is not measured by Hasr and remains for the institution to track."
+    },
+    "tls13_classical": {
+      "years": 1,
+      "source": "Hasr assumption: a configuration change or library upgrade within one change cycle.",
+      "assumption": true
+    },
+    "no_tls13": {
+      "years": 3,
+      "source": "Hasr assumption: a protocol or platform upgrade.",
+      "assumption": true
+    }
+  },
+  "z": {
+    "date": "2030-12-31",
+    "source": "NIST IR 8547 (final, 27 October 2026) deprecates all quantum-vulnerable public-key algorithms after 2030. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date.",
+    "links": [
+      "https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf",
+      "https://www.enisa.europa.eu/media/56885"
+    ]
+  }
+}

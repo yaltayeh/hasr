@@ -1,0 +1,6 @@
+target,system,service,owner,data_classification,data_shelf_life_years,migration_years,third_party,constraints
+127.0.0.1:8443,Lab A (sample),Customer web portal,Lab web team (sample),Secret,,,in-house,
+127.0.0.1:8444,Lab B (sample),Internal API gateway,Lab platform team (sample),Restricted,,,in-house,
+127.0.0.1:8445,Lab C (sample),Partner file exchange,Lab integration team (sample),Secret,,,Example Vendor (sample),"Vendor appliance; TLS settings fixed by firmware (sample)"
+127.0.0.1:9,Lab D (sample),Payments reconciliation,Lab operations (sample),Top Secret,,,in-house,
+127.0.0.1:8446,Lab E (sample),Archive service,Lab operations (sample),Top Secret,,,in-house,
