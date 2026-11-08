@@ -2,7 +2,7 @@
 
 Each entry: date, decision, reason. Only decided items are built.
 
-## 2026-11-08 — Scope (from BRIEF.md)
+## 2026-11-08 — Scope (from the project brief)
 
 - **Decision:** Version 1 covers two discovery layers: network and cloud. Code scanning and other layers come after the competition.
 - **Reason:** Fixed in the project brief before planning started.
