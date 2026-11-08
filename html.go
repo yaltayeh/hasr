@@ -233,7 +233,7 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
 
   {{if eq $c.N 2}}
   <h3 id="clause-2a">2a · Systems, data and migration priority</h3>
-  <p class="hint">Mosca's inequality: an asset is at risk when X + Y &gt; Z. X: years the data must stay confidential. Y: years to migrate. Z: years until a quantum computer can break today's public-key cryptography. Sorted: at risk (largest margin first), unknown, not at risk, mitigated.</p>
+  <p class="hint">Mosca's inequality: an asset is at risk when X + Y &gt; Z. X: years the data must stay confidential. Y: years to migrate. Z: the time until the quantum threat or a regulatory deadline, in years. Sorted: at risk (largest margin first), unknown, not at risk, mitigated.</p>
   {{if $.Assets}}
   <div class="scroll"><table>
     <thead><tr><th>#</th><th>Target</th><th>System · service</th><th>Owner</th><th>Classification</th><th>Key exchange</th><th>Legacy</th><th class="n">X</th><th class="n">Y</th><th class="n">Z</th><th class="n">X+Y−Z</th><th>Status</th></tr></thead>
@@ -263,7 +263,7 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
   <div class="scroll"><table class="plain values">
     <thead><tr><th>Value</th><th class="n">Years</th><th>Source</th></tr></thead>
     <tbody>
-      <tr><td>Z: time until a cryptographically relevant quantum computer</td><td class="n">{{years $.Policy.Z.Years}}{{if $.Policy.Z.Date}}<div class="sub">until {{$.Policy.Z.Date}}</div>{{end}}</td><td>{{if $.Policy.Z.Years}}{{$.Policy.Z.Source}}{{template "links" $.Policy.Z.Links}}{{else}}not set{{end}}</td></tr>
+      <tr><td>Z: the time until the quantum threat or a regulatory deadline</td><td class="n">{{years $.Policy.Z.Years}}{{if $.Policy.Z.Date}}<div class="sub">until {{$.Policy.Z.Date}}</div>{{end}}</td><td>{{if $.Policy.Z.Years}}{{$.Policy.Z.Source}}{{template "links" $.Policy.Z.Links}}{{else}}not set{{end}}</td></tr>
       {{range $.Policy.ClassificationLevels}}<tr><td>Default X: {{.Label}}</td><td class="n">{{years .ShelfLife.Years}}</td><td>{{src .ShelfLife}}{{template "links" .ShelfLife.Links}}</td></tr>{{end}}
       {{with $.Policy.MigrationYearsDefault}}
       <tr><td>Default Y: already hybrid</td><td class="n">{{years .AlreadyHybrid.Years}}</td><td>{{src .AlreadyHybrid}}{{template "links" .AlreadyHybrid.Links}}{{if .AlreadyHybrid.Assumption}}<div class="sub assume">assumption; override per entry</div>{{end}}</td></tr>

@@ -297,6 +297,68 @@ Each entry: date, decision, reason. Only decided items are built.
   - 7: the 2a/2b labels stay, with the note that they are Hasr's.
 - **Reason:** Fidelity to the Arabic original.
 
+## 2026-11-08 — Repository, privacy review and README
+
+### Ignore rules
+
+- **Decision:** `.gitignore` keeps `/BRIEF.md` and `/refs/`.
+- **Reason:** The protection travels with the repository; the names alone reveal nothing.
+
+### History
+
+- **Decision:** The initial commit is not amended; later changes go in new commits.
+- **Reason:** Nothing in it needed removing: the ignore entries reveal nothing.
+
+### Git identity
+
+- **Decision:** The author's name and email are set in this repository's git config only. The global git config is not changed, and the email is the author's GitHub noreply address.
+- **Reason:** Keeps a personal email address out of the public history.
+
+### Commit attribution and time
+
+- **Decision:** Commit messages end with the `Co-Authored-By` line for Claude; no session link. Commit times stay in local time.
+- **Reason:**
+  - `Co-Authored-By` states openly that development is AI-assisted; the decisions themselves are recorded in this file.
+  - The session link is dropped because it is private and no reader can open it.
+  - Local time is kept because the author's location is already public in the project.
+
+### Branch
+
+- **Decision:** The default branch is `main`.
+- **Reason:** It matches GitHub's default for new repositories.
+
+### Privacy review before the first push
+
+- **Checked:** every file to be committed, and the commit message, for:
+  - the author's name and username;
+  - the author's domain;
+  - email addresses;
+  - absolute paths;
+  - details of the development machine (operating system, CPU architecture, package manager, local tool versions, service state);
+  - attribution lines.
+- **Rule:** Committed files carry no details of the development machine. The "DECISIONS.md wording" rule applies to every committed file, not only this one. The author's GitHub username and own domain may appear where the project needs them: the module path, and the author's own scan target.
+
+### README
+
+- **Decision:** `README.md`, approved by the author:
+  - the name comes from «حصر», the word Clause 2 uses for inventory;
+  - what Hasr does, and which clause of the circular each part serves, claiming only what is built;
+  - how it works, briefly, with detail left to this file;
+  - quick start with the test lab, both commands, and the sample mapping and policy files. The sample scan's exit status 1 is marked as expected;
+  - responsible use;
+  - limitations;
+  - status and roadmap: cloud discovery next, the rest under "Planned";
+  - the license line "No license yet; all rights reserved."
+
+  It does not mention the project brief, the local reference folder or the development machine. Examples use the test lab only.
+- **Decision:** `docs/report.png` shows two areas of one lab-only report: the header with its overview cards, and the Clause 2a priority table. A dashed line joins them, and the caption says they are two parts.
+- **Reason:** A public reader sees what Hasr does today, without overclaiming.
+
+### Definition of Z
+
+- **Decision:** Z is "the time until the quantum threat or a regulatory deadline". It is worded the same in the README and in the report's Clause 2a note and values table.
+- **Reason:** The default Z is a deadline (31 December 2030), not an estimate of when a quantum computer will exist.
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.

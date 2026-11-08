@@ -45,8 +45,8 @@ type MigrationDefaults struct {
 	NoTLS13        Sourced `json:"no_tls13"`
 }
 
-// ZValue is the date by which a cryptographically relevant quantum computer is
-// assumed; Years is computed from it at report time.
+// ZValue is the date of the quantum threat or a regulatory deadline (Mosca's
+// Z); Years is computed from it at report time.
 type ZValue struct {
 	Date   string   `json:"date"` // YYYY-MM-DD
 	Source string   `json:"source"`
