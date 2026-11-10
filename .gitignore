@@ -15,3 +15,24 @@
 *.p12
 *.pfx
 .env
+
+# Report and scan output written to the repo root by the quick start
+/scan.json
+/hasr-report.*
+
+# Cloud discovery: raw collector output and converted files hold account IDs and ARNs
+/cloud.json
+/aws.json
+/raw/
+
+# Terraform (cloudlab): local state, plans and variables hold account IDs, ARNs and the scanning IP
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+!*.tfvars.example
+
+# Demo run output (holds the demo load balancers' DNS names)
+/cloudlab/aws/run/

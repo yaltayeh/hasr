@@ -58,7 +58,7 @@ func summarize(probes []Probe) Summary {
 	s.Complete = len(s.InconclusiveProbes) == 0
 	conclusive := func(ids ...string) bool {
 		for _, id := range ids {
-			if r := result[id]; r != resultAccepted && r != resultRejected {
+			if r := result[id]; r != resultAccepted && r != resultRejected && r != resultClosed {
 				return false
 			}
 		}

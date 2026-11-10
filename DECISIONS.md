@@ -359,6 +359,129 @@ Each entry: date, decision, reason. Only decided items are built.
 - **Decision:** Z is "the time until the quantum threat or a regulatory deadline". It is worded the same in the README and in the report's Clause 2a note and values table.
 - **Reason:** The default Z is a deadline (31 December 2030), not an estimate of when a quantum computer will exist.
 
+## 2026-11-09 — Cloud discovery (AWS)
+
+### Architecture
+
+- **Decision:** Cloud discovery is split into three stages, with a provider-neutral format between them and the core:
+  1. a collector: `collectors/aws/collect.sh`, a POSIX `sh` script that runs only read-only `aws` CLI commands and writes their raw JSON to a folder;
+  2. a converter: `hasr cloud aws --from RAW_DIR`, written in Go in `internal/cloud/aws`, turns that folder into the neutral format on stdout;
+  3. `hasr report --cloud FILE` reads only the neutral format. The flag may be repeated, one file per provider.
+- **Reason:**
+  - Hasr itself never touches AWS credentials and keeps zero third-party dependencies.
+  - The raw folder is evidence the institution can keep.
+  - Other providers (Google Cloud, Azure, Cloudflare) can be added later without changing the core.
+- **Decision:** Provider-specific rules live in the provider's package. Each verdict carries its basis and a source link. Examples are "PQ in the policy name" and the translation of OpenSSL-style cipher names. The report sees only verdicts.
+- **Decision:** Minimal layout: `internal/cloud` (neutral types, reader, validation) and `internal/cloud/aws`. The rest stays in `package main`, with no refactor.
+- **Decision:** The neutral format uses the scan's own vocabulary (`key_exchange`, `legacy`, version strings, certificate refs), so the report can compare field by field. It stays mappable to CycloneDX CBOM.
+
+### Scope
+
+- **Decision:** Load balancers (ELBv2) and their listeners, SSL policy contents, listener certificates, ACM certificate details, and tags. CloudFront, API Gateway, KMS and Classic Load Balancers go under "Planned".
+- **Decision:** From the API, "hybrid" means the policy name contains `PQ`. This is AWS's documented rule ("Security policies with PQ in their names offer hybrid post-quantum key exchange"), and the report shows the AWS link with it.
+  - **Reason:** `DescribeSSLPolicies` returns protocols and ciphers but no key-exchange groups.
+- **Decision:** Tags may fill empty `owner`, `system` and `service` fields only, never `data_classification`. The CSV wins on conflict, and the report shows each value's source.
+- **Decision:** Hasr never scans an endpoint because the API found it. Discovered endpoints are listed, and they count against the completeness figure under Clause 2.
+
+### Joining the scan and the cloud data
+
+- **Decision:** A cloud record matches a `host:port` target when:
+  - the target's host is one of the record's hostnames, or the target's CNAME chain ends at one; and
+  - the port is the listener's port.
+  An explicit override column comes later, if time allows. The certificate is a cross-check only.
+- **Decision:** When the scan and the matched records disagree, the worst of all of them counts, consistent with "error never clears a rule". Every disagreement is listed under Clause 2 (accuracy).
+- **Decision:** A new policy value `migration_years_default.managed_tls_policy` = 0.5 years. Source: "Hasr assumption: a policy switch on a managed TLS endpoint, plus client-compatibility testing."
+- **Decision:** Clause 2b lists "the TLS policy can be changed in place" as crypto-agility evidence.
+- **Decision:** When a matched cloud record shows that the TLS policy is a managed setting and that it lacks hybrid key exchange, the record's recommendation replaces the action of the scan's key-exchange finding. The scan's finding text, its evidence, stays. The finding then also notes what the single switch changes. Without a cloud match, the scan's wording stays.
+  - For AWS the action is "Switch the listener to a PQ security policy (AWS recommends `ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09`); test client compatibility first", with the AWS documentation link.
+  - The note is worked out from the two policies' contents as read (`describe-ssl-policies`). For `2016-08`: adds hybrid post-quantum key exchange, adds TLS 1.3, removes TLS 1.0 and 1.1, removes RSA key transport suites.
+  - The record's own key-exchange finding is then not repeated.
+  - The AWS wording, the recommended policy and the effects come from the AWS converter, in the neutral format's `recommendation` field. The report only applies them.
+  - **Reason:** For a managed load balancer, "enable TLS 1.3 first (protocol upgrade)" is wrong. One setting does it.
+
+### Credentials and safety
+
+- **Decision:** The collector runs as the IAM role `hasr-readonly`, with only the permissions in the committed `collectors/aws/iam-policy.json`:
+  - `elasticloadbalancing:Describe*` (five actions, listed in the file);
+  - `acm:ListCertificates`, `DescribeCertificate`, `ListTagsForCertificate` and `GetCertificate`. `GetCertificate` returns the public certificate only.
+  The role is assumed from the project's admin role through an AWS profile (`role_arn` and `source_profile`).
+- **Reason:** IAM enforces read-only as a second guard. The first guard is a test that fails if the collector script runs anything other than `describe-*`, `list-*` or `get-*`.
+- **Decision:** The collector refuses to run with root credentials. It records every command and its exit status in `manifest.json`, and failed regions become stated limits under Clause 2. `--region` is required and may be repeated.
+- **Decision:** Raw collector folders, converted files, Terraform state, plans and variables are gitignored. The account ID stays in local output only.
+
+### Demo infrastructure
+
+- **Decision:** `cloudlab/aws/`, Terraform. State stays local on the machine of whoever runs the demo. Every change in AWS goes through Terraform; the author runs `apply` and `destroy` after reading the plan.
+- **Reason:** The author knows Terraform. It is a demo only, so remote state isn't needed.
+- **Decision:**
+  - Two internet-facing Application Load Balancers with fixed responses:
+    - `pq` uses `ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09`;
+    - `default` sets no policy, so it gets `ELBSecurityPolicy-2016-08`, the default for Terraform, the CLI and CloudFormation (the console's default is the PQ policy).
+  - Port 443 is open to the scanning machine's /32 only.
+  - The demo has its own VPC.
+  - No plaintext listener.
+  - Disagreements are shown in tests only.
+- **Reason:** PQ and non-PQ policies cannot share one load balancer.
+- **Decision:** The certificate is self-signed RSA 2048, generated by an ephemeral `tls_private_key`. It is passed only to write-only arguments: `private_key_pem_wo` (TLS provider 4.4.2) and `private_key_wo` (AWS provider 6.72.0, available since 6.47.0). The key never enters the plan or state files. Terraform 1.11 or later, exact provider pins, and the lock file is committed.
+- **Decision:** Terraform also creates the role `hasr-readonly`. Only the project's admin role in the same account may assume it, and `destroy` removes it.
+- **Decision:** The demo region is `eu-north-1` (Stockholm).
+- **Reason:** The demo account belongs to AWS's new account experience: a project inside an AWS-managed organization, with spend limits. Its AWS-managed service control policy denies every action outside the project's own Region, which is `eu-north-1`.
+  - A first plan in `us-east-1` was refused with an explicit deny from that policy.
+  - Bahrain (`me-south-1`) and the UAE (`me-central-1`) were not options: the author reports that Bahrain is unavailable after this year's damage and that the UAE region lost an Availability Zone.
+  - No advanced features or project settings are changed.
+- **Decision:** The demo's endpoints (the load balancers' DNS names) may be scanned only while the Terraform state lists them. After `destroy` their addresses return to AWS.
+- **Decision:** After `destroy`, a script run as the admin checks that nothing is left:
+  1. the state is empty;
+  2. no resource carries the tag `Project=hasr-demo`;
+  3. direct listings of load balancers, certificates, VPC resources and the role come back empty;
+  4. `hasr cloud aws` finds no load balancers.
+  The author checks billing the next day.
+- **Decision:** `cloudlab/aws/up.sh` plans the demo with the current public IP. It reads the IP from `https://checkip.amazonaws.com` and accepts only four decimal octets, each 0–255. It passes the IP as `TF_VAR_my_ip` (a /32), in the environment and not on the command line. It writes the full plan output to the gitignored `run/plan.log` and shows only summary lines with IPv4 addresses redacted, then stops for the author to apply. It refuses to run while `terraform.tfvars` sets the IP, because a tfvars value overrides `TF_VAR_*`.
+- **Reason:** The author's public IP changes; the security group then drops the scan's connection attempts silently.
+- **Decision:** `cloudlab/aws/scan-demo.sh` scans the two load balancers only while the Terraform state lists them. It writes a runtime mapping (with the DNS names) and the scan to the gitignored `cloudlab/aws/run/`.
+- **Decision:** The AWS MCP server is not used in this project and stays disabled.
+- **Reason:** Its endpoint is in `us-east-1`, which the demo account's service control policy denies, and nothing in Hasr needs it. The collector uses the AWS CLI directly.
+- **Correction (same day):** `hasr-readonly` was first planned as an IAM user, on the assumption that Terraform would run as root, and root cannot call `sts:AssumeRole`. The admin identity is in fact the project's role `AccountFullAccessRole`, which can assume roles, so `hasr-readonly` is a role again. The user, its console-password step and its sign-in policy were removed.
+
+### Probe stages: no TCP connection vs a TLS-level close
+
+- **Decision:** Each probe connects in two stages:
+  1. a TCP connection;
+  2. the TLS handshake on it.
+  An `error` result records its `stage` (`tcp` or `tls`), and the two are worded differently:
+  - "no TCP connection: no answer to the connection attempt (timeout)" means silence: every SYN unanswered;
+  - "no TCP connection: …" with the system's reason covers refused or unreachable;
+  - "TCP connected, then the server closed the connection during the TLS handshake without an alert (EOF)".
+  When every probe of a target fails at the TCP stage, the report says "unreachable: no TCP connection (…); nothing about its TLS is known". The scan schema stays 0.4: the field was added before 0.4 was published.
+- **Reason:** Silence at the TCP level (for example, a security group dropping packets) says nothing about TLS. It must never be confused with a server that refuses a TLS offer by closing the connection.
+
+### How a server refuses: close_notify and zero-byte closes
+
+- **Observed:** on the live demo, two probes ended in `EOF`. They were `hybrid_only` (TLS 1.3 only) against the load balancer with `ELBSecurityPolicy-2016-08`, and `tls12_weak` against the one with the PQ policy.
+  - The author checked the first with `openssl s_client -tls1_3 -msg` and `tcpdump`. After ACKing both segments of the ClientHello (1392 + 123 bytes), the load balancer sent one 7-byte record, `15 03 03 00 02 01 00`: an alert record, level warning (1), description close_notify (0). It sent the FIN in the same instant; the two arrived reordered, and SACK recovered them.
+  - So the load balancer does not close silently. It answers with close_notify and gives no reason.
+- **Expected by the standards:**
+  - RFC 8446, section 4.2.1: a server that supports none of the offered versions aborts with a `protocol_version` alert.
+  - A TLS 1.2 server with no cipher suite in common sends `handshake_failure` (RFC 5246, section 7.4.1.3).
+  - close_notify (RFC 8446, section 6.1) is meant for ending a connection, not for refusing a handshake.
+- **Why Hasr saw EOF:** Go's `crypto/tls` returns `io.EOF` both for a received close_notify and for a bare FIN with no bytes. Only an alert with an error description becomes a "remote error".
+- **Decision:** The raw TCP connection given to `tls.Client` is wrapped in a recorder, standard library only, that keeps the first 16 bytes the server sends and counts them all. When a handshake ends in `EOF`:
+  - **close_notify first:** the first record is an alert carrying close_notify, so no ServerHello came before it. The result is `rejected`, with "closed with close_notify, no reason given".
+  - **zero bytes, then FIN:** retried once. If the retry gives the same, the result is `closed`. `closed` counts as a refusal only if another probe on the same target was accepted. Otherwise it becomes `error`, with "not counted as a refusal: no probe on this target was accepted".
+  - **Unchanged:** an alert with a reason is still `rejected`. A reset or timeout is still `error`, and so is any other EOF.
+  - **Evidence:** the probe JSON records `bytes_before_close` (`hex` of at most 16 bytes, and `count`) whenever a handshake ended in EOF.
+- **Reason:** A close_notify is an answer from the server, and a scanner that calls it "no answer" misreports. A bare FIN is weaker evidence, because a middlebox can also drop connections. That's why it needs a matching retry and a sign that the target answers other offers.
+- **Observed inconsistency (AWS ALB):** the load balancer refuses in two different ways.
+  - **Below the policy's minimum version** (TLS 1.0 or 1.1 against the PQ policy): a proper fatal `protocol_version` alert.
+  - **Above the policy's maximum version** (TLS 1.3 only against `2016-08`), **or with no cipher suite in common** (weak suites only against the PQ policy): close_notify, with no reason.
+- **Supersedes:** options (a)–(c) proposed on the same day for the "silent close". The close was not silent.
+- **Tests:** fake servers on 127.0.0.1 that:
+  - send close_notify, then close;
+  - close with zero bytes once (the retry is accepted);
+  - close with zero bytes every time (`error`, never a refusal);
+  - send a fatal `protocol_version` alert.
+  A unit test checks that `closed` counts as conclusive when another probe was accepted.
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.
@@ -366,6 +489,12 @@ Each entry: date, decision, reason. Only decided items are built.
 ## Verification log
 
 - **2026-11-08, RSA key transport:** verified. `tls12_weak` completed full handshakes with `TLS_RSA_WITH_AES_128_GCM_SHA256` and `TLS_RSA_WITH_AES_128_CBC_SHA` against temporary OpenSSL `s_server`s on 127.0.0.1:8446 (TLS 1.2, one suite each). The `default` probe was rejected by both, which confirms why the probe is needed.
+- **2026-11-09, AWS demo (eu-north-1), live run:**
+  - **Collector:** ran as `hasr-readonly`: 13 calls, 0 failed. The Terraform state held no private key (0 matches for `PRIVATE KEY`).
+  - **Scan, PQ policy:** hybrid, X25519MLKEM768 by default; classical is still accepted on TLS 1.3 (x25519) and TLS 1.2. TLS 1.0 and 1.1 are rejected with `protocol_version`. The weak-suite offer is rejected with close_notify.
+  - **Scan, policy `2016-08`:** TLS 1.0, 1.1 and 1.2, with RSA key transport (`TLS_RSA_WITH_AES_128_GCM_SHA256`). The TLS 1.3-only hybrid offer is rejected with close_notify.
+  - **Scan vs API:** the scan and the API agree on every field compared, including the certificate (same SHA-256 as the ACM certificate on the listener). No disagreements.
+- **2026-11-09, AWS demo destroyed, leftover check (`check-clean.sh`):** 12 of 13 checks passed: an empty state, and direct listings of load balancers, ACM certificates, VPC, subnets, security groups, security-group rules, internet gateways, route tables, the load balancers' network interfaces and the IAM role, plus `hasr cloud aws` with 0 endpoints. The tag search still listed one `ec2` `security-group-rule`, although EC2 itself returns no such rule and its security group is gone. That is the tagging index lagging behind the deletion, which the script already warned about. A direct check for security-group rules was added to the script after this run. Still to do: re-run the tag search later, and the author checks billing the next day.
 - **2026-11-08, 3DES and RC4:** NOT verified. The available OpenSSL builds have no 3DES or RC4 suites. The one local library that has both cannot listen on 127.0.0.1 only, so it wasn't run. For now, the probes that offer these suites (`tls10_only`, `tls11_only`, `tls12_weak`) say "offered; not yet verified" in their detail field. The decided rule for RC4 is applied to 3DES too, pending a decision.
 
 ## Provisional — NOT yet decided (awaiting confirmation)

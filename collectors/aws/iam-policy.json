@@ -1,0 +1,28 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "HasrReadLoadBalancers",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeListenerCertificates",
+        "elasticloadbalancing:DescribeSSLPolicies",
+        "elasticloadbalancing:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "HasrReadCertificates",
+      "Effect": "Allow",
+      "Action": [
+        "acm:ListCertificates",
+        "acm:DescribeCertificate",
+        "acm:ListTagsForCertificate",
+        "acm:GetCertificate"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

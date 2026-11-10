@@ -43,6 +43,11 @@
       "years": 3,
       "source": "Hasr assumption: a protocol or platform upgrade.",
       "assumption": true
+    },
+    "managed_tls_policy": {
+      "years": 0.5,
+      "source": "Hasr assumption: a policy switch on a managed TLS endpoint, plus client-compatibility testing.",
+      "assumption": true
     }
   },
   "z": {

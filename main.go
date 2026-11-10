@@ -12,15 +12,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 )
 
-const schemaVersion = "0.3"
+// schemaVersion 0.4 added canonical_name; readScan also accepts 0.3.
+const schemaVersion = "0.4"
 
 // Report is the JSON document. PROVISIONAL: the schema is not frozen.
 type Report struct {
@@ -36,17 +39,25 @@ type Tool struct {
 }
 
 type Target struct {
-	Target       string        `json:"target"`
-	ScannedAt    time.Time     `json:"scanned_at"`
-	Error        string        `json:"error,omitempty"` // the target itself was invalid
-	Probes       []Probe       `json:"probes"`
-	Certificates []Certificate `json:"certificates"`
-	Summary      Summary       `json:"summary"`
+	Target    string    `json:"target"`
+	ScannedAt time.Time `json:"scanned_at"`
+	Error     string    `json:"error,omitempty"` // the target itself was invalid
+	// CanonicalName is the end of the host's CNAME chain, when it differs from
+	// the host. The report matches cloud endpoints against it.
+	CanonicalName string        `json:"canonical_name,omitempty"`
+	Probes        []Probe       `json:"probes"`
+	Certificates  []Certificate `json:"certificates"`
+	Summary       Summary       `json:"summary"`
+
+	// managedTLS is set by the report when a matched cloud record shows the
+	// TLS policy is a managed setting. Not part of the scan JSON.
+	managedTLS bool
 }
 
 const usage = `usage:
   hasr scan [-table] [-timeout 5s] [--targets mapping.csv] [host:port ...]
-  hasr report --scan scan.json --map mapping.csv [--policy policy.json] [--html hasr-report.html] [--json hasr-report.json]
+  hasr cloud aws --from RAW_DIR > aws.json
+  hasr report --scan scan.json --map mapping.csv [--cloud aws.json ...] [--policy policy.json] [--html hasr-report.html] [--json hasr-report.json]
 
 Flags go before the targets. Only scan targets you own or are authorised to assess.
 `
@@ -61,6 +72,8 @@ func main() {
 		os.Exit(runScan(os.Args[2:]))
 	case "report":
 		os.Exit(runReport(os.Args[2:]))
+	case "cloud":
+		os.Exit(runCloud(os.Args[2:]))
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -148,6 +161,27 @@ func runScan(args []string) int {
 	return 0
 }
 
+// canonicalName resolves the host's CNAME chain (an ordinary DNS lookup) and
+// returns its end, or "" for an IP address, a host without a CNAME, or a failed lookup.
+func canonicalName(host string, timeout time.Duration) string {
+	if net.ParseIP(host) != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cname, err := net.DefaultResolver.LookupCNAME(ctx, host)
+	if err != nil {
+		return ""
+	}
+	cname = normalizeHost(cname)
+	if cname == normalizeHost(host) {
+		return ""
+	}
+	return cname
+}
+
+func normalizeHost(h string) string { return strings.ToLower(strings.TrimSuffix(h, ".")) }
+
 func scanTarget(target string, offers []*Offer, timeout time.Duration) Target {
 	now := time.Now().UTC().Truncate(time.Second)
 	t := Target{Target: target, ScannedAt: now, Probes: []Probe{}, Certificates: []Certificate{}}
@@ -159,6 +193,8 @@ func scanTarget(target string, offers []*Offer, timeout time.Duration) Target {
 		t.Summary.Complete = false
 		return t
 	}
+
+	t.CanonicalName = canonicalName(host, timeout)
 
 	seen := map[string]bool{}
 	for i, spec := range probeSpecs {
@@ -173,6 +209,7 @@ func scanTarget(target string, offers []*Offer, timeout time.Duration) Target {
 		}
 		t.Probes = append(t.Probes, p)
 	}
+	settleClosed(t.Probes)
 	t.Probes = append(t.Probes, notTested...)
 	t.Summary = summarize(t.Probes)
 	return t

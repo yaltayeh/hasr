@@ -4,18 +4,24 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
-	"fmt"
+	"io"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 )
 
 // Probe results.
 const (
-	resultAccepted  = "accepted"   // handshake completed
-	resultRejected  = "rejected"   // the server sent a TLS alert
-	resultError     = "error"      // no answer: timeout, refused, reset, closed without an alert
+	resultAccepted = "accepted" // handshake completed
+	resultRejected = "rejected" // the server sent a TLS alert (including close_notify before any ServerHello)
+	// resultClosed: the server closed the connection after our ClientHello
+	// without sending a byte, twice, while another probe on the same target
+	// was accepted. Counted as a refusal (DECISIONS.md, "How a server refuses").
+	resultClosed    = "closed"
+	resultError     = "error"      // no answer: timeout, refused, reset, or an unexplained close
 	resultNotTested = "not_tested" // Go cannot test this; never read as "not supported"
 )
 
@@ -27,6 +33,13 @@ type Probe struct {
 	Attempts   int         `json:"attempts,omitempty"`
 	Negotiated *Negotiated `json:"negotiated,omitempty"`
 	Detail     string      `json:"detail,omitempty"` // error text, then the probe's note
+	// Stage says where an error happened: "tcp" (no TCP connection: timeout,
+	// refused, unreachable) or "tls" (connected, then the TLS handshake failed,
+	// e.g. the server closed the connection without an alert).
+	Stage string `json:"stage,omitempty"`
+	// BytesBeforeClose is the raw evidence when the handshake ended in EOF:
+	// what the server sent before closing (first 16 bytes, hex) and how many.
+	BytesBeforeClose *CloseEvidence `json:"bytes_before_close,omitempty"`
 
 	// Kept apart for the table, which prints each note once instead of per probe.
 	errText string
@@ -171,10 +184,11 @@ func attemptProbe(spec probeSpec, offer *Offer, target string, timeout time.Dura
 	p := Probe{ID: spec.ID, Offered: offer}
 	for attempt := 1; attempt <= 2; attempt++ {
 		p.Attempts = attempt
-		st, err := handshake(spec.Config(), target, timeout)
+		st, stage, seen, err := handshake(spec.Config(), target, timeout)
+		p.BytesBeforeClose = nil
 		if err == nil {
 			p.Result = resultAccepted
-			p.Detail = ""
+			p.Detail, p.Stage = "", ""
 			p.Negotiated = &Negotiated{
 				Version:     tls.VersionName(st.Version),
 				CipherSuite: suiteName(st.CipherSuite),
@@ -186,12 +200,28 @@ func attemptProbe(spec probeSpec, offer *Offer, target string, timeout time.Dura
 			}
 			return p, st.PeerCertificates
 		}
-		p.Detail = err.Error()
+		p.Detail, p.Stage = describeError(stage, err), ""
 		if isAlert(err) {
 			p.Result = resultRejected
 			return p, nil
 		}
-		p.Result = resultError
+		if stage == stageTLS && errors.Is(err, io.EOF) {
+			p.BytesBeforeClose = seen.evidence()
+			switch {
+			case seen.closeNotifyFirst():
+				// RFC 8446 expects an alert with a reason here (e.g. protocol_version);
+				// some servers (observed: AWS ALB) send close_notify instead. It is an
+				// answer, so a refusal, but without a reason.
+				p.Result, p.Detail = resultRejected, "closed with close_notify, no reason given"
+				return p, nil
+			case seen.total == 0:
+				// Zero bytes, then FIN: retried; settleClosed decides after all probes.
+				p.Result, p.Stage = resultClosed, stage
+				p.Detail = closedZero
+				continue
+			}
+		}
+		p.Result, p.Stage = resultError, stage
 		if !retryable(err) {
 			return p, nil
 		}
@@ -199,22 +229,117 @@ func attemptProbe(spec probeSpec, offer *Offer, target string, timeout time.Dura
 	return p, nil
 }
 
-func handshake(cfg *tls.Config, target string, timeout time.Duration) (tls.ConnectionState, error) {
+const closedZero = "closed after our ClientHello without sending a byte"
+
+// settleClosed applies the rule for zero-byte closes once all probes of a
+// target have run: "closed" counts as a refusal only if another probe on the
+// same target was accepted; otherwise it is an error (the target may simply be
+// dropping connections).
+func settleClosed(probes []Probe) {
+	accepted := false
+	for _, p := range probes {
+		if p.Result == resultAccepted {
+			accepted = true
+		}
+	}
+	if accepted {
+		return
+	}
+	for i := range probes {
+		if probes[i].Result == resultClosed {
+			probes[i].Result = resultError
+			// Keep the probe's note, which runProbe appended after the error text.
+			probes[i].Detail = strings.Replace(probes[i].Detail, closedZero, closedZero+"; not counted as a refusal: no probe on this target was accepted", 1)
+			probes[i].errText = strings.Replace(probes[i].errText, closedZero, closedZero+"; not counted as a refusal: no probe on this target was accepted", 1)
+		}
+	}
+}
+
+// CloseEvidence is what the server sent before closing the connection.
+type CloseEvidence struct {
+	Hex   string `json:"hex"`   // first bytes, at most 16
+	Count int    `json:"count"` // all bytes received
+}
+
+// recorder keeps the first bytes the server sends on the raw TCP connection.
+type recorder struct {
+	net.Conn
+	first []byte
+	total int
+}
+
+const recordBytes = 16
+
+func (r *recorder) Read(b []byte) (int, error) {
+	n, err := r.Conn.Read(b)
+	if n > 0 {
+		if room := recordBytes - len(r.first); room > 0 {
+			r.first = append(r.first, b[:min(n, room)]...)
+		}
+		r.total += n
+	}
+	return n, err
+}
+
+func (r *recorder) evidence() *CloseEvidence {
+	return &CloseEvidence{Hex: hex.EncodeToString(r.first), Count: r.total}
+}
+
+// closeNotifyFirst: the first record is an alert (type 21) carrying
+// close_notify (description 0), so nothing (no ServerHello) came before it.
+func (r *recorder) closeNotifyFirst() bool {
+	f := r.first
+	return len(f) >= 7 && f[0] == 21 && f[1] == 3 && f[3] == 0 && f[4] == 2 && f[6] == 0
+}
+
+const (
+	stageTCP = "tcp"
+	stageTLS = "tls"
+)
+
+// handshake connects in two stages, so that silence at the TCP level is never
+// mistaken for a TLS-level answer: first the TCP connection, then the TLS
+// handshake on it. Each stage gets the full timeout. It returns the stage an
+// error happened in.
+func handshake(cfg *tls.Config, target string, timeout time.Duration) (tls.ConnectionState, string, *recorder, error) {
 	// The probe observes what the server presents; it does not trust it and
 	// sends it no data. Certificates are verified separately afterwards.
 	cfg.InsecureSkipVerify = true
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	conn, err := (&tls.Dialer{Config: cfg}).DialContext(ctx, "tcp", target)
+	if cfg.ServerName == "" {
+		if host, _, err := net.SplitHostPort(target); err == nil && net.ParseIP(host) == nil {
+			cfg.ServerName = host
+		}
+	}
+	dctx, dcancel := context.WithTimeout(context.Background(), timeout)
+	defer dcancel()
+	raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", target)
 	if err != nil {
-		return tls.ConnectionState{}, err
+		return tls.ConnectionState{}, stageTCP, &recorder{}, err
 	}
-	defer conn.Close()
-	tc, ok := conn.(*tls.Conn)
-	if !ok {
-		return tls.ConnectionState{}, fmt.Errorf("unexpected connection type %T", conn)
+	defer raw.Close()
+	rec := &recorder{Conn: raw}
+	hctx, hcancel := context.WithTimeout(context.Background(), timeout)
+	defer hcancel()
+	tc := tls.Client(rec, cfg)
+	if err := tc.HandshakeContext(hctx); err != nil {
+		return tls.ConnectionState{}, stageTLS, rec, err
 	}
-	return tc.ConnectionState(), nil
+	return tc.ConnectionState(), "", rec, nil
+}
+
+// describeError words a failed attempt so the two stages read differently.
+func describeError(stage string, err error) string {
+	switch {
+	case stage == stageTCP && retryable(err):
+		return "no TCP connection: no answer to the connection attempt (timeout): " + err.Error()
+	case stage == stageTCP:
+		return "no TCP connection: " + err.Error()
+	case errors.Is(err, io.EOF):
+		return "TCP connected, then the server closed the connection during the TLS handshake without an alert (EOF)"
+	case isAlert(err):
+		return err.Error()
+	}
+	return "TLS handshake failed: " + err.Error()
 }
 
 // isAlert reports whether the server answered with a TLS alert.

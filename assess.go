@@ -5,9 +5,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/yaltayeh/hasr/internal/cloud"
 )
 
-const reportSchemaVersion = "0.1"
+const reportSchemaVersion = "0.2" // 0.2 added the cloud fields
 
 // RiskReport is what `hasr report` writes as JSON and renders as HTML.
 // PROVISIONAL: the schema is not frozen.
@@ -31,15 +33,24 @@ type RiskReport struct {
 	NotAssessed []Asset `json:"not_assessed"`
 	// NotTested are the scanner's stated limits.
 	NotTested []Limit `json:"not_tested"`
+
+	// Cloud (only when --cloud files were given).
+	// Disagreements between the scan and matched cloud records; the worse counts.
+	Disagreements []Disagreement `json:"disagreements"`
+	// CloudDiscovered are cloud endpoints that no scanned or mapped target matched.
+	CloudDiscovered []cloud.Endpoint `json:"cloud_discovered"`
+	// CloudLimits are the cloud collectors' stated limits, including failed scopes.
+	CloudLimits []Limit `json:"cloud_limits"`
 }
 
 type Inputs struct {
-	ScanFile          string    `json:"scan_file"`
-	ScanGeneratedAt   time.Time `json:"scan_generated_at"`
-	ScanSchemaVersion string    `json:"scan_schema_version"`
-	ScanTool          Tool      `json:"scan_tool"`
-	MappingFile       string    `json:"mapping_file"`
-	PolicyFile        string    `json:"policy_file"` // empty = built-in defaults
+	ScanFile          string       `json:"scan_file"`
+	ScanGeneratedAt   time.Time    `json:"scan_generated_at"`
+	ScanSchemaVersion string       `json:"scan_schema_version"`
+	ScanTool          Tool         `json:"scan_tool"`
+	MappingFile       string       `json:"mapping_file"`
+	PolicyFile        string       `json:"policy_file"` // empty = built-in defaults
+	Cloud             []CloudInput `json:"cloud"`
 }
 
 type Completeness struct {
@@ -49,7 +60,12 @@ type Completeness struct {
 	NotAssessed      int `json:"not_assessed"`
 	NeedsOwnerInput  int `json:"needs_owner_input"`
 	Scanned          int `json:"scanned"`
+	// CloudDiscovered count against completeness: known targets = mapped + discovered.
+	CloudDiscovered int `json:"cloud_discovered"`
 }
+
+// Known is the denominator of the completeness figure.
+func (c Completeness) Known() int { return c.Mapped + c.CloudDiscovered }
 
 type Asset struct {
 	Target           string        `json:"target"`
@@ -63,6 +79,12 @@ type Asset struct {
 	Mosca        Mosca         `json:"mosca"`
 	Findings     []Finding     `json:"findings"`
 	Certificates []Certificate `json:"certificates"`
+	// Cloud records matched to this target, and what they add.
+	Cloud []CloudMatch `json:"cloud,omitempty"`
+	// FieldSources says where a mapping field came from when it was not the mapping file.
+	FieldSources map[string]string `json:"field_sources,omitempty"`
+	// Agility is Clause 2b evidence from cloud records.
+	Agility []string `json:"agility,omitempty"`
 }
 
 // Mosca is X + Y > Z for one asset. A nil value is unknown.
@@ -101,7 +123,7 @@ type Limit struct {
 	Detail string `json:"detail"`
 }
 
-func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy, now time.Time) RiskReport {
+func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy, now time.Time, clouds ...cloudFile) RiskReport {
 	r := RiskReport{
 		Kind:             "hasr-report",
 		SchemaVersion:    reportSchemaVersion,
@@ -114,7 +136,12 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 		MappedNotScanned: []MappingEntry{},
 		NotAssessed:      []Asset{},
 		NotTested:        []Limit{},
+		Disagreements:    []Disagreement{},
+		CloudDiscovered:  []cloud.Endpoint{},
+		CloudLimits:      cloudLimits(clouds),
 	}
+	r.Inputs.Cloud = cloudInputs(clouds)
+	usedCloud := map[string]bool{}
 	byTarget := map[string]*MappingEntry{}
 	for i := range mapping {
 		byTarget[mapping[i].Target] = &mapping[i]
@@ -125,7 +152,21 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 	for _, t := range scan.Targets {
 		scanned[t.Target] = true
 		m := byTarget[t.Target]
+		ems := matchCloud(t.Target, t.CanonicalName, clouds)
+		var sources map[string]string
+		if m != nil && len(ems) > 0 {
+			filled, src := fillFromLabels(*m, ems)
+			m, sources = &filled, src
+		}
+		t, matches, dis := applyCloud(t, ems)
+		r.Disagreements = append(r.Disagreements, dis...)
+		for _, em := range ems {
+			usedCloud[em.e.ResourceID] = true
+		}
 		a := assessTarget(t, m, pol)
+		a.Cloud, a.FieldSources, a.Agility = matches, sources, agilityEvidence(matches)
+		recommended := applyRecommendation(a.Findings, matches)
+		a.Findings = append(a.Findings, cloudFindings(matches, recommended)...)
 		switch {
 		case m == nil:
 			r.NeedsOwnerInput = append(r.NeedsOwnerInput, a)
@@ -150,6 +191,7 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 		}
 	}
 	sortByPriority(r.Assets)
+	r.CloudDiscovered = discovered(clouds, usedCloud, mapping)
 
 	r.Completeness = Completeness{
 		Mapped:           len(mapping),
@@ -158,6 +200,7 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 		NotAssessed:      len(r.NotAssessed),
 		NeedsOwnerInput:  len(r.NeedsOwnerInput),
 		Scanned:          len(scan.Targets),
+		CloudDiscovered:  len(r.CloudDiscovered),
 	}
 	return r
 }
@@ -177,6 +220,9 @@ func assessTarget(t Target, m *MappingEntry, pol Policy) Asset {
 	switch {
 	case t.Error != "":
 		a.Problem = t.Error
+	case len(s.VersionsAccepted) == 0 && noTCP(t):
+		// Silence or refusal at the TCP level: nothing about TLS is known.
+		a.Problem = "unreachable: no TCP connection (" + tcpReason(t) + "); nothing about its TLS is known"
 	case len(s.VersionsAccepted) == 0:
 		a.Problem = "unreachable: no probe accepted (" + strings.Join(s.InconclusiveProbes, ", ") + " ended in error)"
 	case !s.Complete:
@@ -259,6 +305,32 @@ func assessMosca(t Target, m *MappingEntry, pol Policy) Mosca {
 	return mo
 }
 
+// noTCP reports whether every probe that ran ended without a TCP connection.
+func noTCP(t Target) bool {
+	ran := 0
+	for _, p := range t.Probes {
+		if p.Result == resultNotTested {
+			continue
+		}
+		ran++
+		if p.Result != resultError || p.Stage != stageTCP {
+			return false
+		}
+	}
+	return ran > 0
+}
+
+// tcpReason says whether the TCP attempts timed out (silence) or failed otherwise.
+func tcpReason(t Target) string {
+	for _, p := range t.Probes {
+		// Detail is the error text, then "; " and the probe's note, if any.
+		if d := strings.SplitN(p.Detail, "; ", 2)[0]; p.Stage == stageTCP && !strings.Contains(d, "(timeout)") {
+			return "connection attempts failed: " + strings.TrimPrefix(d, "no TCP connection: ")
+		}
+	}
+	return "every connection attempt timed out: no answer at all"
+}
+
 func isInHouse(thirdParty string) bool {
 	return strings.EqualFold(strings.TrimSpace(thirdParty), "in-house")
 }
@@ -269,6 +341,9 @@ func migrationCategory(t Target) string {
 	switch {
 	case s.KeyExchange == "hybrid":
 		return catAlreadyHybrid
+	case t.managedTLS:
+		// A managed TLS policy is switched by a setting, whatever the protocol versions.
+		return catManagedTLS
 	case s.KeyExchange == "classical" && contains(s.VersionsAccepted, "TLS 1.3"):
 		return catTLS13Classical
 	case s.KeyExchange == "classical" && contains(s.KeyExchangeReasons, noTLS13Reason):

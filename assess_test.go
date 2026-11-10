@@ -50,7 +50,7 @@ func fullPolicy() Policy {
 	for i, x := range []float64{25, 10, 5, 0} { // Top Secret, Secret, Restricted, Public
 		p.ClassificationLevels[i].ShelfLife = sourced(x)
 	}
-	p.MigrationYearsDefault = MigrationDefaults{AlreadyHybrid: sourced(0), TLS13Classical: sourced(1), NoTLS13: sourced(3)}
+	p.MigrationYearsDefault = MigrationDefaults{AlreadyHybrid: sourced(0), TLS13Classical: sourced(1), NoTLS13: sourced(3), ManagedTLSPolicy: sourced(0.5)}
 	p.MigrationYearsDefault.TLS13Classical.Assumption = true
 	p.Z = ZValue{Date: "2035-01-01", Source: "test value", Years: f(9)}
 	return p

@@ -141,16 +141,17 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 			statusMitigated: "Mitigated for PQ-capable clients", statusUnknown: "Unknown",
 		}[s]
 	},
-	"cap":      func(s string) string { return sentenceCase(s) },
-	"join":     strings.Join,
-	"versions": shortVersions,
-	"short":    shortRef,
-	"key":      func(pk PublicKey) string { return pk.keyLabel() },
-	"when":     func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
-	"day":      func(t time.Time) string { return t.UTC().Format("2006-01-02") },
-	"dash":     dash,
-	"inc":      func(i int) int { return i + 1 },
-	"slice3":   func(a, b, c []Asset) [][]Asset { return [][]Asset{a, b, c} },
+	"cap":                func(s string) string { return sentenceCase(s) },
+	"disagreementCauses": func() string { return disagreementCauses },
+	"join":               strings.Join,
+	"versions":           shortVersions,
+	"short":              shortRef,
+	"key":                func(pk PublicKey) string { return pk.keyLabel() },
+	"when":               func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
+	"day":                func(t time.Time) string { return t.UTC().Format("2006-01-02") },
+	"dash":               dash,
+	"inc":                func(i int) int { return i + 1 },
+	"slice3":             func(a, b, c []Asset) [][]Asset { return [][]Asset{a, b, c} },
 	"anyFindings": func(as []Asset) bool {
 		for _, a := range as {
 			if len(a.Findings) > 0 {
@@ -194,7 +195,7 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
 </header>
 
 <section class="cards" aria-label="Overview">
-  <div class="card"><span class="num">{{.Completeness.Assessed}}<small> of {{.Completeness.Mapped}}</small></span><span class="lbl">mapped targets assessed</span></div>
+  <div class="card"><span class="num">{{.Completeness.Assessed}}<small> of {{.Completeness.Known}}</small></span><span class="lbl">{{if .Completeness.CloudDiscovered}}known targets assessed (mapped, plus found in the cloud){{else}}mapped targets assessed{{end}}</span></div>
   <div class="card risk"><span class="num">{{index .Counts "at_risk"}}</span><span class="lbl">at risk</span></div>
   <div class="card unknown"><span class="num">{{index .Counts "unknown"}}</span><span class="lbl">unknown priority</span></div>
   <div class="card ok"><span class="num">{{index .Counts "mitigated_pq_clients"}}</span><span class="lbl">mitigated for PQ-capable clients</span></div>
@@ -241,9 +242,9 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
     {{range $i, $a := $.Assets}}
       <tr>
         <td>{{inc $i}}</td>
-        <td class="mono">{{$a.Target}}</td>
-        <td>{{$a.Mapping.System}}<div class="sub">{{$a.Mapping.Service}}</div></td>
-        <td>{{dash $a.Mapping.Owner}}</td>
+        <td class="mono">{{$a.Target}}{{range $a.Cloud}}<div class="sub">{{.Provider}}: {{.Name}} ({{.Match}} match)</div>{{end}}</td>
+        <td>{{$a.Mapping.System}}{{with index $a.FieldSources "system"}}<div class="sub">from {{.}}</div>{{end}}<div class="sub">{{$a.Mapping.Service}}</div>{{with index $a.FieldSources "service"}}<div class="sub">from {{.}}</div>{{end}}</td>
+        <td>{{dash $a.Mapping.Owner}}{{with index $a.FieldSources "owner"}}<div class="sub">from {{.}}</div>{{end}}</td>
         <td>{{dash $a.Mapping.DataClassification}}</td>
         <td><span class="tag kex-{{$a.KeyExchange}}">{{$a.KeyExchange}}</span></td>
         <td><span class="tag legacy-{{$a.Legacy}}">{{$a.Legacy}}</span></td>
@@ -269,16 +270,17 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
       <tr><td>Default Y: already hybrid</td><td class="n">{{years .AlreadyHybrid.Years}}</td><td>{{src .AlreadyHybrid}}{{template "links" .AlreadyHybrid.Links}}{{if .AlreadyHybrid.Assumption}}<div class="sub assume">assumption; override per entry</div>{{end}}</td></tr>
       <tr><td>Default Y: TLS 1.3, classical key exchange</td><td class="n">{{years .TLS13Classical.Years}}</td><td>{{src .TLS13Classical}}{{template "links" .TLS13Classical.Links}}{{if .TLS13Classical.Assumption}}<div class="sub assume">assumption; override per entry</div>{{end}}</td></tr>
       <tr><td>Default Y: no TLS 1.3</td><td class="n">{{years .NoTLS13.Years}}</td><td>{{src .NoTLS13}}{{template "links" .NoTLS13.Links}}{{if .NoTLS13.Assumption}}<div class="sub assume">assumption; override per entry</div>{{end}}</td></tr>
+      <tr><td>Default Y: managed TLS policy (cloud)</td><td class="n">{{years .ManagedTLSPolicy.Years}}</td><td>{{src .ManagedTLSPolicy}}{{template "links" .ManagedTLSPolicy.Links}}{{if .ManagedTLSPolicy.Assumption}}<div class="sub assume">assumption; override per entry</div>{{end}}</td></tr>
       {{end}}
     </tbody>
   </table></div>
   <p class="hint">Default Y applies only to endpoints whose third_party is "in-house"; a vendor's timeline is never guessed.</p>
 
   <h3 id="clause-2b">2b · Crypto-agility evidence, constraints and third parties</h3>
-  <p class="hint">Hasr's crypto-agility rating is planned and not in this version. The evidence below is what the scan shows today.</p>
+  <p class="hint">Hasr's crypto-agility rating is planned and not in this version. The evidence below is what the scan{{if $.Inputs.Cloud}} and the cloud records{{end}} show today.</p>
   {{if $.Assets}}
   <div class="scroll"><table>
-    <thead><tr><th>Target</th><th>System</th><th>Third party</th><th>Constraints</th><th>TLS versions</th><th>Key-exchange evidence</th></tr></thead>
+    <thead><tr><th>Target</th><th>System</th><th>Third party</th><th>Constraints</th><th>TLS versions</th><th>Key-exchange evidence</th>{{if $.Inputs.Cloud}}<th>Cloud evidence</th>{{end}}</tr></thead>
     <tbody>
     {{range $.Assets}}
       <tr>
@@ -287,7 +289,8 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
         <td>{{dash .Mapping.ThirdParty}}</td>
         <td>{{dash .Mapping.Constraints}}</td>
         <td>{{versions .VersionsAccepted}}</td>
-        <td>{{range .Findings}}{{if eq .Area "key_exchange"}}{{.Finding}}{{end}}{{end}}</td>
+        <td>{{range .Findings}}{{if eq .Area "key_exchange"}}<div>{{.Finding}}</div>{{end}}{{end}}</td>
+        {{if $.Inputs.Cloud}}<td>{{range .Agility}}<div>{{.}}</div>{{else}}—{{end}}</td>{{end}}
       </tr>
     {{end}}
     </tbody>
@@ -317,14 +320,17 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
 
   <h3 id="completeness">Completeness of the inventory procedure</h3>
   <div class="figure">
-    <span class="big">{{$.Completeness.Assessed}} of {{$.Completeness.Mapped}}</span>
-    <span>mapped targets were scanned and fully assessed.</span>
+    <span class="big">{{$.Completeness.Assessed}} of {{$.Completeness.Known}}</span>
+    <span>{{if $.Completeness.CloudDiscovered}}known targets ({{$.Completeness.Mapped}} mapped, plus {{$.Completeness.CloudDiscovered}} found in the cloud and not in the target list){{else}}mapped targets{{end}} were scanned and fully assessed.</span>
   </div>
   <ul class="counts">
     <li><a href="#needs-owner-input">Needs owner input</a>: {{$.Completeness.NeedsOwnerInput}} scanned, not in the mapping file</li>
     <li><a href="#mapped-not-scanned">Mapped but not scanned</a>: {{$.Completeness.MappedNotScanned}}</li>
     <li><a href="#not-assessed">Not assessed</a>: {{$.Completeness.NotAssessed}} unreachable or incomplete</li>
     <li><a href="#not-tested">Not tested</a>: {{len $.NotTested}} stated scanner limits</li>
+    {{if $.Inputs.Cloud}}<li><a href="#cloud-discovered">Found in the cloud, not in the target list</a>: {{$.Completeness.CloudDiscovered}}</li>
+    <li><a href="#disagreements">Scan and cloud records disagree</a>: {{len $.Disagreements}}</li>
+    <li><a href="#cloud-limits">Not read</a>: {{len $.CloudLimits}} stated limits of the cloud collectors</li>{{end}}
   </ul>
 
   <h4 id="needs-owner-input">Needs owner input</h4>
@@ -359,6 +365,30 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
 
   <h4 id="not-tested">Not tested: the scanner's stated limits</h4>
   <ul class="limits">{{range $.NotTested}}<li><span class="mono">{{.ID}}</span>: {{.Detail}}</li>{{end}}</ul>
+
+  {{if $.Inputs.Cloud}}
+  <h4 id="cloud-discovered">Found in the cloud, not in the target list</h4>
+  {{if $.CloudDiscovered}}
+  <p class="hint">Endpoints the cloud records list that no scanned or mapped target matched. Hasr never scans them automatically: review them and add the ones in scope to the mapping file.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Provider · scope</th><th>Name</th><th>Hostnames</th><th>Port</th><th>Protocol</th><th>Exposure</th><th>Key exchange</th><th>Legacy</th><th>Policy</th></tr></thead>
+    <tbody>{{range $.CloudDiscovered}}<tr><td>{{.Provider}} · {{.Scope}}</td><td>{{.Name}}</td><td class="mono">{{join .Hostnames ", "}}</td><td>{{.Port}}</td><td>{{.Protocol}}</td><td>{{.Exposure}}</td>
+      {{if .TLS}}<td><span class="tag kex-{{.TLS.KeyExchange}}">{{.TLS.KeyExchange}}</span></td><td><span class="tag legacy-{{.TLS.Legacy}}">{{.TLS.Legacy}}</span></td><td>{{.TLS.Policy.Name}}</td>{{else}}<td colspan="3">{{range .Notes}}<div class="sub">{{.}}</div>{{end}}</td>{{end}}</tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="empty">None.</p>{{end}}
+
+  <h4 id="disagreements">Scan and cloud records disagree</h4>
+  {{if $.Disagreements}}
+  <p class="hint">Possible causes: {{disagreementCauses}}. The worse of the two values counts for priority.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Target</th><th>Cloud record</th><th>Field</th><th>Scan saw</th><th>Cloud record says</th><th>Counted</th></tr></thead>
+    <tbody>{{range $.Disagreements}}<tr><td class="mono">{{.Target}}</td><td>{{.Provider}} {{.Name}}</td><td>{{.Field}}</td><td>{{.Scan}}</td><td>{{.Cloud}}</td><td>{{.Counted}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="empty">None.</p>{{end}}
+
+  <h4 id="cloud-limits">Not read: the cloud collectors' stated limits</h4>
+  <ul class="limits">{{range $.CloudLimits}}<li><span class="mono">{{.ID}}</span>: {{.Detail}}</li>{{end}}</ul>
+  {{end}}
   {{end}}
 
   {{if eq $c.N 3}}
@@ -389,7 +419,9 @@ const reportHTML = `{{define "links"}}{{range .}}<div class="sub link"><a href="
   {{if eq $c.N 4}}
   <h3>How this report is reproduced</h3>
   <pre class="cmd">hasr scan [--targets {{$.Inputs.MappingFile}}] [host:port ...] &gt; scan.json
-hasr report --scan scan.json --map {{$.Inputs.MappingFile}} --policy {{$.Inputs.PolicyFile}}</pre>
+{{range $.Inputs.Cloud}}collectors/{{.Provider}}/collect.sh -o RAW_DIR --region REGION ...
+hasr cloud {{.Provider}} --from RAW_DIR &gt; {{.File}}
+{{end}}hasr report --scan scan.json --map {{$.Inputs.MappingFile}}{{range $.Inputs.Cloud}} --cloud {{.File}}{{end}} --policy {{$.Inputs.PolicyFile}}</pre>
   <p>This report was built from <span class="mono">{{$.Inputs.ScanFile}}</span> (scan run {{when $.Inputs.ScanGeneratedAt}}, scan schema {{$.Inputs.ScanSchemaVersion}}) and <span class="mono">{{$.Inputs.MappingFile}}</span>. Keep each scan's JSON with the report as evidence. Tracking changes between scans is planned.</p>
   {{end}}
 </section>
@@ -402,6 +434,7 @@ hasr report --scan scan.json --map {{$.Inputs.MappingFile}} --policy {{$.Inputs.
     <li>Scan: <span class="mono">{{.Inputs.ScanFile}}</span>, {{.Completeness.Scanned}} targets, {{.Inputs.ScanTool.Name}} with {{.Inputs.ScanTool.Go}}</li>
     <li>Mapping: <span class="mono">{{.Inputs.MappingFile}}</span>, {{.Completeness.Mapped}} rows</li>
     <li>Policy: <span class="mono">{{.Inputs.PolicyFile}}</span> (classification levels: {{range $i, $l := .Policy.ClassificationLevels}}{{if $i}}, {{end}}{{$l.Label}}{{end}})</li>
+    {{range .Inputs.Cloud}}<li>Cloud: <span class="mono">{{.File}}</span>, provider {{.Provider}}, collected {{when .CollectedAt}}; scopes: {{range $i, $s := .Scopes}}{{if $i}}, {{end}}{{$s.Scope}} ({{$s.Status}}){{end}}</li>{{end}}
   </ul>
   <h3>Method</h3>
   <p>Each target receives a fixed set of ordinary TLS handshakes, each with a different offer: the default offer; hybrid key exchange only; classical key exchange only; TLS 1.2 at most; TLS 1.1 only; TLS 1.0 only; TLS 1.2 with weak suites only. Nothing beyond a handshake is sent, and only targets the institution owns or is authorised to assess may be scanned.</p>

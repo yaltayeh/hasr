@@ -1,0 +1,32 @@
+#!/bin/sh
+# Fake `aws` for collector_test.go. It never contacts AWS. It answers from
+# response files that the test writes at run time into $FAKE_AWS_DIR, named
+#   <service>_<operation>[_<last ARN path segment>].json
+# and logs every invocation to $FAKE_AWS_DIR/invocations.log.
+# A file named <same>.fail makes that call fail with its contents on stderr.
+set -u
+dir=${FAKE_AWS_DIR:?}
+printf '%s\n' "$*" >>"$dir/invocations.log"
+if [ "${1:-}" = "--version" ]; then
+  echo "aws-cli/0.0.0-fake"
+  exit 0
+fi
+svc=$1 op=$2
+shift 2
+key=""
+for a in "$@"; do
+  case $a in
+    arn:*) key="_${a##*/}" ;;
+  esac
+done
+base="$dir/${svc}_${op}${key}"
+if [ -f "$base.fail" ]; then
+  cat "$base.fail" >&2
+  exit 254
+fi
+if [ -f "$base.json" ]; then
+  cat "$base.json"
+  exit 0
+fi
+echo "fake aws: no response for $svc $op $*" >&2
+exit 255

@@ -43,6 +43,9 @@ type MigrationDefaults struct {
 	AlreadyHybrid  Sourced `json:"already_hybrid"`
 	TLS13Classical Sourced `json:"tls13_classical"`
 	NoTLS13        Sourced `json:"no_tls13"`
+	// ManagedTLSPolicy applies when a cloud record shows the endpoint's TLS
+	// policy is a managed setting (DECISIONS.md, "Cloud discovery (AWS)").
+	ManagedTLSPolicy Sourced `json:"managed_tls_policy"`
 }
 
 // ZValue is the date of the quantum threat or a regulatory deadline (Mosca's
@@ -100,9 +103,10 @@ func (p Policy) validate() error {
 	}
 	m := p.MigrationYearsDefault
 	for name, v := range map[string]Sourced{
-		"migration_years_default.already_hybrid":  m.AlreadyHybrid,
-		"migration_years_default.tls13_classical": m.TLS13Classical,
-		"migration_years_default.no_tls13":        m.NoTLS13,
+		"migration_years_default.already_hybrid":     m.AlreadyHybrid,
+		"migration_years_default.tls13_classical":    m.TLS13Classical,
+		"migration_years_default.no_tls13":           m.NoTLS13,
+		"migration_years_default.managed_tls_policy": m.ManagedTLSPolicy,
 	} {
 		if err := v.check(name); err != nil {
 			return err
@@ -182,12 +186,14 @@ const (
 	catAlreadyHybrid  = "already_hybrid"
 	catTLS13Classical = "tls13_classical"
 	catNoTLS13        = "no_tls13"
+	catManagedTLS     = "managed_tls_policy"
 )
 
 var categoryLabels = map[string]string{
 	catAlreadyHybrid:  "already hybrid",
 	catTLS13Classical: "TLS 1.3, classical key exchange",
 	catNoTLS13:        "no TLS 1.3",
+	catManagedTLS:     "managed TLS policy (cloud)",
 }
 
 func (p Policy) migrationDefault(category string) Sourced {
@@ -198,6 +204,8 @@ func (p Policy) migrationDefault(category string) Sourced {
 		return p.MigrationYearsDefault.TLS13Classical
 	case catNoTLS13:
 		return p.MigrationYearsDefault.NoTLS13
+	case catManagedTLS:
+		return p.MigrationYearsDefault.ManagedTLSPolicy
 	}
 	return Sourced{}
 }
@@ -218,7 +226,7 @@ func (p Policy) missingValues() []string {
 		m = append(m, "default X for "+strings.Join(xs, ", "))
 	}
 	var ys []string
-	for _, c := range []string{catAlreadyHybrid, catTLS13Classical, catNoTLS13} {
+	for _, c := range []string{catAlreadyHybrid, catTLS13Classical, catNoTLS13, catManagedTLS} {
 		if p.migrationDefault(c).Years == nil {
 			ys = append(ys, categoryLabels[c])
 		}

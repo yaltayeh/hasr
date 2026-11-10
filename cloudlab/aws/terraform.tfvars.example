@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored) only to change these defaults.
+# Do not set my_ip here: up.sh passes the current public IP as TF_VAR_my_ip,
+# and a value in terraform.tfvars would override it.
+# region    = "eu-north-1"
+# name_prefix = "hasr-demo"
