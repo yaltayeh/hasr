@@ -9,7 +9,7 @@ import (
 	"github.com/yaltayeh/hasr/internal/cloud"
 )
 
-const reportSchemaVersion = "0.3" // 0.2 added the cloud fields; 0.3 the margin lower bound and flag
+const reportSchemaVersion = "0.3" // 0.2 added the cloud fields; 0.3 the margin lower bound, flag, agility, initiatives and committee items
 
 // RiskReport is what `hasr report` writes as JSON and renders as HTML.
 // PROVISIONAL: the schema is not frozen.
@@ -41,6 +41,11 @@ type RiskReport struct {
 	CloudDiscovered []cloud.Endpoint `json:"cloud_discovered"`
 	// CloudLimits are the cloud collectors' stated limits, including failed scopes.
 	CloudLimits []Limit `json:"cloud_limits"`
+
+	// Initiatives group recurring actions across assets (Clause 3).
+	Initiatives []Initiative `json:"initiatives"`
+	// CommitteeItems are challenges and recommendations to escalate (Clause 4).
+	CommitteeItems []CommitteeItem `json:"committee_items"`
 }
 
 type Inputs struct {
@@ -85,6 +90,8 @@ type Asset struct {
 	FieldSources map[string]string `json:"field_sources,omitempty"`
 	// Agility is Clause 2b evidence from cloud records.
 	Agility []string `json:"agility,omitempty"`
+	// AgilityIndicative is the asset's Clause 2b row (assessed assets only).
+	AgilityIndicative *AgilityIndicative `json:"agility_indicative,omitempty"`
 }
 
 // Mosca is X + Y > Z for one asset. A nil value is unknown.
@@ -116,10 +123,15 @@ const (
 
 // Finding is one observation with its recommended action.
 type Finding struct {
-	Area    string `json:"area"` // key_exchange | legacy | certificate
+	Area    string `json:"area"` // third_party | key_exchange | legacy | certificate | certificate_expiry
 	Finding string `json:"finding"`
 	Action  string `json:"action"`
+	// Initiative is the Clause 3 initiative this action belongs to (I1, I2, ...), if any.
+	Initiative string `json:"initiative,omitempty"`
 }
+
+// certExpiryDays is how close to expiry a certificate gets a certificate_expiry finding.
+const certExpiryDays = 90
 
 // Limit is something the scanner did not test.
 type Limit struct {
@@ -195,6 +207,10 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 		}
 	}
 	sortByPriority(r.Assets, pol)
+	for i := range r.Assets {
+		r.Assets[i].AgilityIndicative = agilityOf(r.Assets[i])
+	}
+	r.Initiatives = buildInitiatives(r.Assets)
 	r.CloudDiscovered = discovered(clouds, usedCloud, mapping)
 
 	r.Completeness = Completeness{
@@ -206,6 +222,7 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 		Scanned:          len(scan.Targets),
 		CloudDiscovered:  len(r.CloudDiscovered),
 	}
+	r.CommitteeItems = buildCommitteeItems(r)
 	return r
 }
 
@@ -239,6 +256,15 @@ func assessTarget(t Target, m *MappingEntry, pol Policy) Asset {
 		a.Mosca = Mosca{Status: statusUnknown, Notes: []string{"not assessed: " + a.Problem}}
 	default:
 		a.Mosca = assessMosca(t, m, pol)
+		// A missing Y is the first thing to act on: it is asked of someone.
+		switch a.Mosca.Flag {
+		case "Y unknown: ask vendor":
+			a.Findings = append([]Finding{{Area: "third_party", Finding: "Y unknown: no migration timeline from " + strings.TrimSpace(m.ThirdParty),
+				Action: "Ask the vendor for a dated migration plan; set migration_years for this entry."}}, a.Findings...)
+		case "Y unknown: ask owner":
+			a.Findings = append([]Finding{{Area: "third_party", Finding: "Y unknown: migration time not stated",
+				Action: "Ask the owner for the migration time; set migration_years for this entry (and third_party, if empty)."}}, a.Findings...)
+		}
 	}
 	return a
 }
@@ -506,6 +532,11 @@ func findings(t Target) []Finding {
 			add("certificate", fmt.Sprintf("Certificate %s has expired", ref), "Renew the certificate.")
 		case "not_yet_valid":
 			add("certificate", fmt.Sprintf("Certificate %s is not yet valid", ref), "Check the certificate's start date and the server clock.")
+		default:
+			if n, ok := daysLeft(t.ScannedAt, c.NotAfter.UTC().Format("2006-01-02")); ok && n >= 0 && n <= certExpiryDays {
+				add("certificate_expiry", fmt.Sprintf("Certificate %s expires %s, %s after the scan", ref, c.NotAfter.UTC().Format("2006-01-02"), plural(n, "day", "days")),
+					"Renew before expiry. Operational resilience, not a quantum finding.")
+			}
 		}
 	}
 	return out

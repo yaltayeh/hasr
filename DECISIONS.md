@@ -606,6 +606,37 @@ The author passed on an expert review of the report design (14 changes). They ar
 - **Decision:** The circular's own numbering is shown in Arabic beside each clause badge (Clause 1 = أولًا, 2 = ثانيًا, 3 = ثالثًا, 4 = رابعًا), in the coverage table and in the SAMA Circular section, whose note now gives the mapping.
 - **Reason:** A committee reads the circular in Arabic and tracks deadlines; "Clause 2" alone did not match the text they hold, and a due date without the days left hid how close Clause 2 is.
 
+## 2026-11-11 — Expert review, group 3: content
+
+### Clause 2b table (indicative agility)
+
+- **Decision:** A "Crypto-agility, constraints and third parties" section (Clause 2b) follows the priority table: one row per assessed asset with classification, third party, constraint, "Y known?" (per entry, default, no), an **indicative** agility level, the evidence, and what to ask of the vendor or owner. The heading text says the level is indicative and not a full crypto-agility assessment.
+- **Decision:** Levels: **In place** (hybrid key exchange negotiated), **Vendor-bound** (a third party other than in-house operates it), **Upgrade** (in-house, classical; a managed cloud TLS policy counts as an upgrade), **Unknown** (third_party not stated). The report JSON carries it per asset as `agility_indicative`.
+- **Reason:** The review asked for 2b back as a table; the restructure had moved it into each row's details, where a committee could not compare assets.
+
+### Certificates
+
+- **Decision:** The Certificates table gains "Days left", counted from the scan: 30 or fewer red, 90 or fewer amber, "expired" red. A certificate that expires within 90 days gets a `certificate_expiry` finding ("Renew before expiry. Operational resilience, not a quantum finding."). The line under the cards counts distinct certificates that expire within 30 days or have expired.
+- **Reason:** The circular's title is operational resilience; an expiring certificate is the most immediate risk on the lab endpoints, though not a quantum one.
+
+### Missing Y as a finding
+
+- **Decision:** An assessed asset whose Y is missing gets a first finding, area `third_party`: "Y unknown: no migration timeline from <vendor>", action "Ask the vendor for a dated migration plan; set migration_years for this entry." (or the owner, when not a vendor). It becomes the asset's next action.
+
+### Clause 3 initiatives
+
+- **Decision:** An "Initiatives" section groups recurring actions across assets: enable hybrid key exchange; retire legacy protocols and weak suites; move certificates to ML-DSA; renew certificates; confirm private trust; replace certificates that do not match their hostname; any other action is its own initiative. Each lists its assets (or "N certificates on M endpoints"), owners (or issuing CAs) and what it depends on. Initiatives are numbered I1, I2, … in that order, and each action in a row's details names its initiative. The third-party ask and the "no change now" action of a mitigated asset belong to no initiative. The report JSON gains `initiatives` and each finding's `initiative`.
+
+### Clause 4 committee items
+
+- **Decision:** "Challenges and recommendations for the committee" lists items generated from the scan: one per vendor with missing Y (with the asset's classification, status and margin, legacy protocols and constraint), one for owners with missing Y, one for targets not assessed, and, when present, targets needing owner input, mapped but not scanned, or found only in the cloud; each due before Clause 2's deadline. The last item is always the decision on the scope and owner of non-TLS cryptographic assets. The report JSON gains `committee_items`. Clause coverage notes for Clauses 3 and 4 now count initiatives and items.
+
+### Clause texts, probes, glossary
+
+- **Decision:** Clause 2's "What Hasr provides" names the procedure evidence first: the inventory is automated and repeatable, and the same two commands rebuild the report. The Provides and Institution lists of Clauses 2–4 mention the indicative agility, the initiatives and the committee items.
+- **Decision:** In Probes, a target whose every probe ended in error is one line ("unreachable · all 7 probes failed at TCP: …") instead of seven error rows; the scan JSON keeps every probe.
+- **Decision:** The glossary no longer repeats the clause texts (they are in the SAMA Circular section), and the clause ⓘ tooltips are removed with them. It gains Agility (indicative), Initiative and Certificate expiry.
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.

@@ -51,7 +51,7 @@ func TestHTMLStructure(t *testing.T) {
 		`<tr class="rowdetail">`, `id="sama"`, `id="sama-clause-2"`, `href="#sama-clause-2"`, `id="glossary"`,
 		`id="print-summary"`, `id="print-full"`, `Clause coverage`,
 		`html:not(.print-full) #appendix{display:none}`,
-		"the scan shows today",
+		`id="agility"`, `Agility (indicative)`, `id="plans"`, `id="committee"`,
 		`Mitigated</span><span class="note">for PQ-capable clients</span>`,
 		`@bottom-left{content:"Hasr · SAMA Circular 482021280 · `, `counter(pages)`,
 	} {
@@ -142,7 +142,7 @@ func TestCoverage(t *testing.T) {
 		"أولًا 142 days left Input provided: Technical input for 3 assessed endpoints. The assessment itself is the institution's.",
 		"ثانيًا 52 days left Partial: TLS only; 3 of 5 TLS targets assessed; 2 not assessed; 1 value missing.",
 		"ثالثًا  No actions: No finding needs an action in this scan.",
-		"رابعًا  Evidence repeatable: The same two commands rebuild this report. Comparison with the previous scan is not built yet.",
+		"رابعًا  Evidence repeatable: 0 items to escalate. The same two commands rebuild this report. Comparison with the previous scan is not built yet.",
 	}
 	for i := range want {
 		if got[i] != want[i] {

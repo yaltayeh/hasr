@@ -47,25 +47,29 @@ var clauses = []clauseInfo{
 			"2b. Assessing the level of crypto-agility of priority assets, and identifying constraints, challenges and third-party dependencies.",
 		},
 		Provides: []string{
+			"Evidence that the procedure exists. The clause asks for accurate and comprehensive procedures, not only a list: the inventory is automated and repeatable, and the same two commands rebuild this report (Clause 4).",
 			"Automatic discovery of the cryptography of each TLS endpoint it is given, from ordinary handshakes.",
 			"Links to systems, services, owners, data classification, constraints and third parties, from the mapping file.",
-			"Migration priority from Mosca's inequality (X + Y > Z).",
-			"Evidence of completeness: the completeness figure, and the lists of targets that need owner input, were mapped but not scanned, or could not be assessed, plus the scanner's stated limits.",
+			"Migration priority from Mosca's inequality (X + Y > Z), with sensitivity shown beside it.",
+			"An indicative crypto-agility level per asset (2b), from scan evidence and the mapping file.",
+			"Evidence of completeness: the completeness figure, and the lists of targets that need owner or vendor input, were mapped but not scanned, or could not be assessed, plus the scanner's stated limits.",
 		},
 		Institution: []string{
+			"Inventory the cryptography outside this scope: SSH, VPN, HSMs and key stores, application code, databases, cloud key services. \"All cryptographic assets\" is wider than TLS.",
 			"Keep the target list and the mapping file complete and correct: owners, classification, shelf life, migration time, third parties.",
-			"Inventory cryptography Hasr does not reach in this version: other protocols, applications and code, key stores and HSMs, cloud services.",
-			"Assess crypto-agility. Hasr's rating is planned; the scan's \"no TLS 1.3\" reason is evidence for it.",
+			"Get missing values from vendors and owners (see Missing values).",
+			"Complete the crypto-agility assessment; Hasr's indicative level is a starting point.",
 		},
 	},
 	{
 		N: 3, Ar: "ثالثًا", Title: "Plans to reach the required crypto-agility", Due: "No date in the circular",
 		Text: "Set plans and initiatives to reach the required level of crypto-agility, or suitable alternative solutions, for all priority assets, consistent with the outputs of Clause 2.",
 		Provides: []string{
-			"A recommended action for each finding, listed in priority order.",
+			"Initiatives: the same action grouped across assets, with the owners involved and what it depends on.",
+			"A recommended action for each finding, per asset, in priority order.",
 		},
 		Institution: []string{
-			"Turn the actions into plans and initiatives: ownership, budget, schedule and vendor engagement.",
+			"Turn the initiatives into plans: ownership, budget, schedule and vendor engagement.",
 			"Choose alternative solutions where migration is not possible.",
 		},
 	},
@@ -74,7 +78,8 @@ var clauses = []clauseInfo{
 		Text: "Include quantum computing risks as a standing item for periodic monitoring within the work of the information security supervisory committee and the board risk committee (where applicable), and escalate challenges and recommendations to the board or its equivalent.",
 		Provides: []string{
 			"Repeatable scans: the same two commands produce a new report at any time, and each scan's JSON is kept as evidence.",
-			"Tracking changes between scans is planned; it is not in this version.",
+			"Challenges and recommendations for the committee, generated from each scan: missing vendor or owner values, targets not assessed, and assets outside the scope.",
+			"Comparing with the previous scan is planned; it is not in this version.",
 		},
 		Institution: []string{
 			"Put quantum-computing risk on the committees' standing agenda and set the monitoring cadence.",
@@ -100,13 +105,13 @@ var clauseCoverage = map[int]struct{ Short, Covers, Must string }{
 		"Technical input: quantum-vulnerable key exchange, legacy protocols, Mosca margin per endpoint",
 		"Run the enterprise assessment; cover operational, legal, regulatory, strategic and workforce risks; set action plans"},
 	2: {"Inventory and classification",
-		"TLS endpoint discovery; links to systems, owners and classification; Mosca priority; completeness evidence",
+		"An automated, repeatable inventory procedure: TLS endpoint discovery; links to systems, owners and classification; Mosca priority; indicative crypto-agility; completeness evidence",
 		"Keep the target list and mapping complete; inventory other cryptography; assess crypto-agility"},
 	3: {"Crypto-agility plans",
-		"A recommended action per finding, in priority order",
-		"Turn actions into plans (owner, budget, schedule, vendors); choose alternatives where migration is not possible"},
+		"Initiatives grouping recurring actions; a recommended action per finding, in priority order",
+		"Turn initiatives into plans (owner, budget, schedule, vendors); choose alternatives where migration is not possible"},
 	4: {"Committee monitoring",
-		"Repeatable scans; each scan's JSON kept as evidence",
+		"Repeatable scans; challenges and recommendations for the committee, generated from each scan",
 		"Make quantum risk a standing agenda item; set the cadence; escalate to the board"},
 }
 
@@ -124,11 +129,9 @@ var glossary = []glossEntry{
 	{"completeness", "Completeness", "TLS targets in the mapping file (plus TLS endpoints found in the cloud, when cloud records are given) that were scanned and fully assessed. Cryptographic assets other than TLS endpoints are out of scope and not counted."},
 	{"notassessed", "Not assessed", "Mapped and scanned, but unreachable or incomplete. Never treated as low priority."},
 	{"nottested", "Not tested", "What this scanner cannot check, for example SSL 3.0 or finite-field DHE, which Go's TLS library does not implement. Never read as \"not supported\"."},
-	{"agility", "Crypto-agility evidence (Clause 2b)", "Hasr's crypto-agility rating is planned and not in this version. Each row's details show the evidence the scan shows today: TLS versions, key-exchange findings, third party and constraints."},
-	{"clause1", "Clause 1", "An enterprise-level assessment of quantum-computing risk within the institution's risk management, with action plans."},
-	{"clause2", "Clause 2", "Inventory and classification of all cryptographic assets: link them to data, systems and services and set migration priority (2a); assess crypto-agility, constraints and third parties (2b)."},
-	{"clause3", "Clause 3", "Plans and initiatives to reach the required crypto-agility, or alternatives, for all priority assets."},
-	{"clause4", "Clause 4", "Quantum-computing risk as a standing item for the information-security and board risk committees, with escalation to the board."},
+	{"agility", "Agility (indicative)", "In place: hybrid key exchange already negotiated. Upgrade: a configuration or library change by the owner. Vendor-bound: depends on a third party or its firmware. Unknown: third_party not stated. Built from scan evidence and the mapping file; not a full crypto-agility assessment."},
+	{"initiative", "Initiative", "One recommended action grouped across the assets that need it, so it can be planned once (Clause 3). Each action in a row's details names its initiative (I1, I2, ...)."},
+	{"certexpiry", "Certificate expiry", "Days from the scan to a certificate's end date: 30 or fewer red, 90 or fewer amber, with a certificate_expiry finding. Operational resilience, not a quantum finding."},
 }
 
 func glossaryText(id string) glossEntry {
@@ -160,6 +163,11 @@ type htmlView struct {
 	DefaultsNote string
 	// Coverage is one row per clause: its status in this scan and the days left.
 	Coverage []coverageRow
+	// Certs lists every certificate per endpoint; CertRefs, CertSoon and
+	// CertExpired count distinct certificates (all, within 30 days, expired).
+	Certs                           []certRow
+	CertRefs, CertSoon, CertExpired int
+	CertEndpoints                   int
 }
 
 // coverageRow is one clause in the "Clause coverage" table.
@@ -236,10 +244,10 @@ func coverage(r RiskReport, v htmlView) []coverageRow {
 			if actions == 0 {
 				row.Status, row.Note = "No actions", "No finding needs an action in this scan."
 			} else {
-				row.Status, row.Note = "Actions proposed", plural(actions, "recommended action", "recommended actions")+" across "+plural(withActions, "asset", "assets")+". Plans, budget and schedule are the institution's."
+				row.Status, row.Note = "Actions proposed", plural(len(r.Initiatives), "initiative", "initiatives")+" from "+plural(actions, "recommended action", "recommended actions")+" across "+plural(withActions, "asset", "assets")+". Plans, budget and schedule are the institution's."
 			}
 		case 4:
-			row.Status, row.Note = "Evidence repeatable", "The same two commands rebuild this report. Comparison with the previous scan is not built yet."
+			row.Status, row.Note = "Evidence repeatable", plural(len(r.CommitteeItems), "item", "items")+" to escalate. The same two commands rebuild this report. Comparison with the previous scan is not built yet."
 		}
 		rows = append(rows, row)
 	}
@@ -254,6 +262,16 @@ type segment struct {
 type probeGroup struct {
 	Target string
 	Rows   []probeRow
+	// Down is the one-line summary of a target whose every probe ended in error; Rows is then empty.
+	Down string
+}
+
+// certRow is one certificate on one endpoint, with its days left at scan time.
+type certRow struct {
+	Target    string
+	Cert      Certificate
+	Days      string // "29 days", "expired"
+	DaysClass string
 }
 
 type probeRow struct {
@@ -308,8 +326,56 @@ func writeHTML(w io.Writer, r RiskReport, targets []Target) error {
 		v.Segments = append(v.Segments, segment{"na", n})
 	}
 	v.Headline = headline(r, v.Counts)
+	refs, soon, expired, endpoints := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, list := range [][]Asset{r.Assets, r.NeedsOwnerInput, r.NotAssessed} {
+		for _, a := range list {
+			for _, c := range a.Certificates {
+				row := certRow{Target: a.Target, Cert: c, Days: "—", DaysClass: "neutral"}
+				refs[c.Ref], endpoints[a.Target] = true, true
+				n, ok := daysLeft(a.ScannedAt, c.NotAfter.UTC().Format("2006-01-02"))
+				switch {
+				case c.Verification.Validity == "expired" || (ok && n < 0):
+					row.Days, row.DaysClass = "expired", "risk"
+					expired[c.Ref] = true
+				case ok:
+					row.Days = plural(n, "day", "days")
+					switch {
+					case n <= 30:
+						row.DaysClass = "risk"
+						soon[c.Ref] = true
+					case n <= certExpiryDays:
+						row.DaysClass = "unk"
+					}
+				}
+				v.Certs = append(v.Certs, row)
+			}
+		}
+	}
+	v.CertRefs, v.CertSoon, v.CertExpired, v.CertEndpoints = len(refs), len(soon), len(expired), len(endpoints)
 	for _, t := range targets {
 		g := probeGroup{Target: t.Target}
+		ran, failed, first := 0, 0, ""
+		for _, p := range t.Probes {
+			if p.Result == resultNotTested {
+				continue
+			}
+			ran++
+			if p.Result == resultError {
+				failed++
+				if first == "" {
+					first = strings.SplitN(p.Detail, "; ", 2)[0]
+				}
+			}
+		}
+		if ran > 0 && failed == ran {
+			where := "ended in error"
+			if noTCP(t) {
+				where = "failed at TCP"
+			}
+			g.Down = "all " + strconv.Itoa(ran) + " probes " + where + ": " + strings.TrimPrefix(first, "no TCP connection: ")
+			v.Probes = append(v.Probes, g)
+			continue
+		}
 		for _, p := range t.Probes {
 			if p.Result == resultNotTested {
 				continue
@@ -499,14 +565,25 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 	"disagreementCauses": func() string { return disagreementCauses },
 	"join":               strings.Join,
 	"hasPrefix":          strings.HasPrefix,
-	"versions":           shortVersions,
-	"short":              shortRef,
-	"key":                func(pk PublicKey) string { return pk.keyLabel() },
-	"when":               func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
-	"day":                func(t time.Time) string { return t.UTC().Format("2006-01-02") },
-	"dash":               dash,
-	"slice3":             func(a, b, c []Asset) [][]Asset { return [][]Asset{a, b, c} },
-	"more":               func(fs []Finding) int { return len(fs) - 1 },
+	"inc":                func(i int) int { return i + 1 },
+	"vendor":             isVendor,
+	"yknown": func(k string) string {
+		return map[string]string{"per_entry": "per entry", "default": "default", "no": "no"}[k]
+	},
+	"aglabel": func(l string) string {
+		return map[string]string{agilityInPlace: "In place", agilityUpgrade: "Upgrade", agilityVendorBound: "Vendor-bound", agilityUnknown: "Unknown"}[l]
+	},
+	"agclass": func(l string) string {
+		return map[string]string{agilityInPlace: "ok", agilityUpgrade: "unk", agilityVendorBound: "risk", agilityUnknown: "unk"}[l]
+	},
+	"versions": shortVersions,
+	"short":    shortRef,
+	"key":      func(pk PublicKey) string { return pk.keyLabel() },
+	"when":     func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
+	"day":      func(t time.Time) string { return t.UTC().Format("2006-01-02") },
+	"dash":     dash,
+	"slice3":   func(a, b, c []Asset) [][]Asset { return [][]Asset{a, b, c} },
+	"more":     func(fs []Finding) int { return len(fs) - 1 },
 }).Parse(reportHTML))
 
 // signedYears prints a margin with its sign: +5.86, −1, 0, or — when unknown.
@@ -548,7 +625,7 @@ const reportIcons = `{{define "i-risk"}}<svg class="ic" viewBox="0 0 24 24" aria
 	`{{define "info"}}{{with gloss .}}<span class="info" tabindex="0" role="note" aria-label="{{.Term}}: {{.Text}}"><span class="i" aria-hidden="true">ⓘ</span><span class="tip" aria-hidden="true"><strong>{{.Term}}.</strong> {{.Text}}</span></span>{{end}}{{end}}` +
 	`{{define "links"}}{{range .}}<span class="note link"><a href="{{.}}" rel="noopener noreferrer">{{.}}</a></span>{{end}}{{end}}` +
 	`{{define "assume"}}<span class="note assume">assumption; override per entry</span>{{end}}` +
-	`{{define "findings"}}<table class="tbl inner"><thead><tr><th class="area">Area</th><th>Finding</th><th>Recommended action</th></tr></thead><tbody>{{range .}}<tr><td><span class="tag c-neutral mono">{{.Area}}</span></td><td>{{.Finding}}</td><td class="muted">{{.Action}}</td></tr>{{end}}</tbody></table>{{end}}`
+	`{{define "findings"}}<table class="tbl inner"><thead><tr><th class="area">Area</th><th>Finding</th><th>Recommended action</th></tr></thead><tbody>{{range .}}<tr><td><span class="tag c-neutral mono">{{.Area}}</span></td><td>{{.Finding}}</td><td class="muted">{{.Action}}{{with .Initiative}} <a class="tag c-neutral ini" href="#plans">{{.}}</a>{{end}}</td></tr>{{end}}</tbody></table>{{end}}`
 
 const reportHTML = reportIcons + `<!doctype html>
 <html lang="en">
@@ -584,7 +661,7 @@ const reportHTML = reportIcons + `<!doctype html>
     <span class="csub">{{if .Completeness.CloudDiscovered}}TLS targets in the mapping file and the cloud, assessed{{else}}TLS targets in the mapping file, assessed{{end}}</span>
   </div>
 </section>
-{{if or (index .Counts "legacy") .AskVendor .AskOwner}}<p class="legacyline">{{with index .Counts "legacy"}}<span class="lline"><span class="tag c-risk">{{.}}</span>{{if eq . 1}}target accepts{{else}}targets accept{{end}} legacy protocols or weak suites {{template "info" "legacy"}}</span>{{end}}{{with .AskVendor}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its vendor{{else}}targets need a value from their vendors{{end}} (Y)</a>{{end}}{{with .AskOwner}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its owner{{else}}targets need a value from their owners{{end}} (Y)</a>{{end}}</p>{{end}}
+{{if or (index .Counts "legacy") .AskVendor .AskOwner .CertSoon .CertExpired}}<p class="legacyline">{{with index .Counts "legacy"}}<span class="lline"><span class="tag c-risk">{{.}}</span>{{if eq . 1}}target accepts{{else}}targets accept{{end}} legacy protocols or weak suites {{template "info" "legacy"}}</span>{{end}}{{with .AskVendor}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its vendor{{else}}targets need a value from their vendors{{end}} (Y)</a>{{end}}{{with .AskOwner}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its owner{{else}}targets need a value from their owners{{end}} (Y)</a>{{end}}{{with .CertExpired}}<a class="lline" href="#certificates"><span class="tag c-risk">{{.}}</span>{{if eq . 1}}certificate has{{else}}certificates have{{end}} expired</a>{{end}}{{with .CertSoon}}<a class="lline" href="#certificates"><span class="tag c-unk">{{.}}</span>{{if eq . 1}}certificate expires{{else}}certificates expire{{end}} within 30 days</a>{{end}}</p>{{end}}
 
 <section id="priority" class="block">
   <div class="sechead"><h2>Migration priority</h2><a class="tag c-clause" href="#sama-clause-2">Clause 2a</a>{{template "info" "mosca"}}</div>
@@ -627,7 +704,7 @@ const reportHTML = reportIcons + `<!doctype html>
               <dt>TLS versions</dt><dd class="mono">{{versions $a.VersionsAccepted}}</dd>
               {{with $a.Cloud}}<dt>Cloud records</dt><dd>{{range .}}<span class="note">{{.Provider}}: {{.Name}} ({{.Match}} match)</span>{{end}}</dd>{{end}}
               {{with $a.Agility}}<dt>Cloud evidence</dt><dd>{{range .}}<span class="note">{{.}}</span>{{end}}</dd>{{end}}
-              <dt>Crypto-agility {{template "info" "agility"}}</dt><dd>{{range $a.Findings}}{{if eq .Area "key_exchange"}}<span class="note">{{.Finding}}</span>{{end}}{{end}}</dd>
+              <dt>Key-exchange evidence</dt><dd>{{range $a.Findings}}{{if eq .Area "key_exchange"}}<span class="note">{{.Finding}}</span>{{end}}{{end}}</dd>
             </dl>
           </div>
           {{with $a.Findings}}<div class="box">{{template "findings" .}}</div>{{end}}
@@ -639,6 +716,27 @@ const reportHTML = reportIcons + `<!doctype html>
   <p class="legend">Bar: X+Y−Z in years; right of 0 = migration finishes after the deadline. Scale ±10 years. A dashed tail marks a lower bound (Y unknown). Order: at risk, unknown, not at risk, mitigated; within each, sensitivity (highest classification first), then legacy protocols, then third-party dependency, then margin.</p>
   {{else}}<p class="empty">No mapped target was fully assessed.</p>{{end}}
 </section>
+
+{{if .Assets}}
+<section id="agility" class="block">
+  <div class="sechead"><h2>Crypto-agility, constraints and third parties</h2><a class="tag c-clause" href="#sama-clause-2">Clause 2b</a><span class="ar" lang="ar" dir="rtl">ثانيًا (ب)</span>{{template "info" "agility"}}</div>
+  <p class="hint">One row per assessed asset. <strong class="ink">The agility level is indicative</strong>: it combines scan evidence with the constraints and third party recorded in the mapping file. It is not a full crypto-agility assessment.</p>
+  <div class="panel box"><table class="tbl agility">
+    <thead><tr><th>Asset</th><th>Classification</th><th>Third party</th><th>Constraint</th><th>Y known?</th><th>Agility (indicative)</th><th>Evidence</th><th>Ask of the vendor or owner</th></tr></thead>
+    <tbody>{{range .Assets}}{{$a := .}}{{with .AgilityIndicative}}<tr>
+      <td><span class="strong">{{$a.Mapping.System}}</span><span class="note mono">{{$a.Target}}</span></td>
+      <td>{{dash $a.Mapping.DataClassification}}</td>
+      <td><span class="tag c-{{if vendor $a.Mapping}}unk{{else}}neutral{{end}}">{{dash $a.Mapping.ThirdParty}}</span></td>
+      <td class="muted">{{dash $a.Mapping.Constraints}}</td>
+      <td><span class="tag c-{{if eq .YKnown "no"}}unk{{else}}neutral{{end}}">{{yknown .YKnown}}</span></td>
+      <td><span class="tag c-{{agclass .Level}}">{{aglabel .Level}}</span></td>
+      <td><span class="mono nowrap">TLS {{versions $a.VersionsAccepted}}</span>{{range .Evidence}}<span class="note">{{.}}</span>{{end}}</td>
+      <td>{{.Ask}}</td>
+    </tr>{{end}}{{end}}</tbody>
+  </table></div>
+  <p class="legend">Levels: In place, hybrid key exchange already negotiated · Upgrade, a configuration or library change by the owner · Vendor-bound, depends on a third party or its firmware · Unknown, third_party not stated.</p>
+</section>
+{{end}}
 
 <section id="completeness" class="block">
   <div class="sechead"><h2>Completeness</h2>{{template "info" "completeness"}}</div>
@@ -736,13 +834,30 @@ const reportHTML = reportIcons + `<!doctype html>
   </div>
 </section>
 
+{{if .Initiatives}}
+<section id="plans" class="block">
+  <div class="sechead"><h2>Initiatives</h2><a class="tag c-clause" href="#sama-clause-3">Clause 3</a><span class="ar" lang="ar" dir="rtl">ثالثًا</span>{{template "info" "initiative"}}</div>
+  <p class="hint">Recurring actions grouped across assets, so each can be planned once. Each row's details list every finding with its action and initiative.</p>
+  <div class="panel box"><table class="tbl plans">
+    <thead><tr><th class="num">#</th><th>Initiative</th><th>Assets</th><th>Owners</th><th>Depends on</th></tr></thead>
+    <tbody>{{range .Initiatives}}<tr><td class="num strong">{{.ID}}</td><td><span class="strong">{{.Title}}</span><span class="note">{{.Kind}}</span></td><td>{{.Assets}}</td><td class="muted">{{.Owners}}</td><td class="muted">{{.Depends}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+
+<section id="committee" class="block">
+  <div class="sechead"><h2>Challenges and recommendations for the committee</h2><a class="tag c-clause" href="#sama-clause-4">Clause 4</a><span class="ar" lang="ar" dir="rtl">رابعًا</span></div>
+  <p class="hint">Generated from this scan: missing vendor or owner values, targets not assessed, and assets outside the scope each become an item to escalate.</p>
+  <ol class="asks">{{range $i, $k := .CommitteeItems}}<li class="panel"><span class="askn">{{inc $i}}</span><span class="askt"><span class="strong">{{$k.Ask}}</span><span class="note">{{$k.Why}}</span></span><span class="askm"><span class="tag c-neutral">{{$k.Owner}}</span><span class="tag c-{{if eq $k.Due "Decision"}}neutral{{else}}unk{{end}}">{{$k.Due}}</span></span></li>{{end}}</ol>
+</section>
+
 <section id="coverage" class="block">
   <div class="sechead"><h2>Clause coverage</h2></div>
   <p class="hint">Days left are counted from the scan date. Clause numbers are Hasr's; the circular's own numbering is shown in Arabic.</p>
   <div class="panel box"><table class="tbl coverage">
     <thead><tr><th>Clause</th><th>Due</th><th>Status in this scan</th><th>Hasr covers</th><th>Institution must</th></tr></thead>
     <tbody>{{range .Coverage}}<tr>
-      <td><span class="cl"><a class="tag c-clause" href="#sama-clause-{{.N}}">Clause {{.N}}</a><span class="ar" lang="ar" dir="rtl">{{.Ar}}</span>{{template "info" (printf "clause%d" .N)}}</span><span class="note strong ink">{{.Short}}</span></td>
+      <td><span class="cl"><a class="tag c-clause" href="#sama-clause-{{.N}}">Clause {{.N}}</a><span class="ar" lang="ar" dir="rtl">{{.Ar}}</span></span><span class="note strong ink">{{.Short}}</span></td>
       <td class="nowrap">{{.Due}}{{if .Left}}<span class="note"><span class="tag c-{{.LeftClass}}">{{.Left}}</span></span>{{end}}</td>
       <td><span class="chip c-{{.StatusClass}}">{{.Status}}</span><span class="note">{{.Note}}</span></td>
       <td>{{.Covers}}</td>
@@ -777,7 +892,7 @@ const reportHTML = reportIcons + `<!doctype html>
   </details>
 
   <details class="ev" id="glossary">
-    <summary>{{template "i-chev"}}Glossary<span class="meta">{{len .Glossary}} terms</span></summary>
+    <summary>{{template "i-chev"}}Glossary<span class="meta">{{len .Glossary}} terms · clause texts are in SAMA Circular above</span></summary>
     <div class="evbody"><dl class="gloss">{{range .Glossary}}<div class="gi"><dt id="g-{{.ID}}">{{.Term}}</dt><dd>{{.Text}}</dd></div>{{end}}</dl></div>
   </details>
 
@@ -804,15 +919,15 @@ const reportHTML = reportIcons + `<!doctype html>
   </details>
 
   <details class="ev" id="certificates">
-    <summary>{{template "i-chev"}}Certificates</summary>
+    <summary>{{template "i-chev"}}Certificates<span class="meta">{{plural .CertRefs "certificate" "certificates"}} on {{plural .CertEndpoints "endpoint" "endpoints"}}{{with .CertSoon}} · {{.}} expire within 30 days{{end}}{{with .CertExpired}} · {{.}} expired{{end}}</span></summary>
     <div class="evbody">
-      <p class="hint">Listed with their algorithms. No Mosca priority for certificates in this version.</p>
+      <p class="hint">Listed with their algorithms. No Mosca priority for certificates in this version. Expiry is an operational-resilience finding (the circular's title), not a quantum one. Days left are counted from the scan; 30 or fewer red, 90 or fewer amber.</p>
       <div class="box"><table class="tbl">
-        <thead><tr><th>Target</th><th>Certificate</th><th>Key</th><th>Signature</th><th>Chain</th><th>Hostname</th><th>Validity</th><th>Not after</th><th>Issuer</th></tr></thead>
+        <thead><tr><th>Target</th><th>Certificate</th><th>Key</th><th>Signature</th><th>Chain</th><th>Hostname</th><th>Validity</th><th>Not after</th><th>Days left</th><th>Issuer</th></tr></thead>
         <tbody>
-        {{range $list := (slice3 .Assets .NeedsOwnerInput .NotAssessed)}}{{range $a := $list}}{{range $c := $a.Certificates}}
-          <tr><td class="mono nowrap">{{$a.Target}}</td><td class="mono">{{short $c.Ref}}</td><td>{{key $c.PublicKey}}</td><td>{{$c.SignatureAlgorithm}}</td><td>{{if $c.Verification.ChainTrusted}}trusted{{else}}not trusted{{with $c.Verification.ChainError}}<span class="note">{{.}}</span>{{end}}{{end}}</td><td class="mono">{{$c.Verification.HostnameMatch}}</td><td>{{$c.Verification.Validity}}</td><td class="mono nowrap">{{day $c.NotAfter}}</td><td class="mono">{{$c.Issuer}}</td></tr>
-        {{end}}{{end}}{{end}}
+        {{range .Certs}}{{$a := .}}{{$c := .Cert}}
+          <tr><td class="mono nowrap">{{$a.Target}}</td><td class="mono">{{short $c.Ref}}</td><td>{{key $c.PublicKey}}</td><td>{{$c.SignatureAlgorithm}}</td><td>{{if $c.Verification.ChainTrusted}}trusted{{else}}not trusted{{with $c.Verification.ChainError}}<span class="note">{{.}}</span>{{end}}{{end}}</td><td class="mono">{{$c.Verification.HostnameMatch}}</td><td>{{$c.Verification.Validity}}</td><td class="mono nowrap">{{day $c.NotAfter}}</td><td><span class="tag c-{{$a.DaysClass}}">{{$a.Days}}</span></td><td class="mono">{{$c.Issuer}}</td></tr>
+        {{end}}
         </tbody>
       </table></div>
     </div>
@@ -820,17 +935,19 @@ const reportHTML = reportIcons + `<!doctype html>
 
   {{if .Probes}}
   <details class="ev" id="probes">
-    <summary>{{template "i-chev"}}Probes<span class="meta">{{len .Probes}} targets</span></summary>
+    <summary>{{template "i-chev"}}Probes<span class="meta">{{len .Probes}} targets · unreachable targets in one line</span></summary>
     <div class="evbody probes">
       {{range .Probes}}
       <div>
         <p class="sub mono strong">{{.Target}}</p>
+        {{if .Down}}<p class="down"><span class="tag c-na">unreachable</span> <span class="dim small">{{.Down}}</span></p>{{else}}
         <div class="box"><table class="tbl inner">
           <thead><tr><th class="offer">Offer</th><th>Result</th><th>Negotiated</th><th>Detail</th></tr></thead>
           <tbody>{{range .Rows}}<tr><td>{{.Offer}}</td><td><span class="tag c-{{resc .Result}}">{{.Result}}</span></td><td class="mono">{{.Negotiated}}</td><td class="dim">{{.Detail}}</td></tr>{{end}}</tbody>
-        </table></div>
+        </table></div>{{end}}
       </div>
       {{end}}
+      <p class="hint">Every probe's raw result, including each error, is in the scan JSON.</p>
     </div>
   </details>
   {{end}}
@@ -1009,6 +1126,14 @@ details[open]>summary .chev{transform:rotate(90deg)}
 ul.limits{list-style:none;padding:0}
 .limits li{display:flex;gap:10px;align-items:baseline;margin:6px 0}
 .coverage td:first-child{min-width:200px}
+.agility{min-width:1000px}.agility td:last-child{min-width:220px}.agility td:nth-child(4){min-width:120px}
+.plans td:nth-child(2){min-width:220px}
+.asks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.asks li{display:flex;gap:12px;align-items:baseline;padding:10px 14px;font-size:13.5px}
+.askn{font-weight:700;color:var(--dim);min-width:14px}.askt{flex:1}
+.askm{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;max-width:40%}
+.ini{font-size:11px;padding:0 6px}
+.down{margin:4px 0 0;font-size:13px}
 .cl{display:inline-flex;align-items:center;gap:8px}
 .ar{font-family:"Geeza Pro","Noto Sans Arabic","SF Arabic","Segoe UI",Tahoma,sans-serif;color:var(--accent);font-weight:600;font-size:14px}
 .coverage .info{margin-left:4px}
