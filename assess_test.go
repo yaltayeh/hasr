@@ -73,12 +73,14 @@ func TestAssessMosca(t *testing.T) {
 			MappingEntry{DataClassification: "Secret", ThirdParty: "In-House", DataShelfLifeYears: f(8)}, pol, statusNotAtRisk, f(8 + 1 - 9), ""},
 		{"overrides beat defaults", classical13("a:1"),
 			MappingEntry{DataClassification: "Secret", ThirdParty: "in-house", DataShelfLifeYears: f(2), MigrationYears: f(4)}, pol, statusNotAtRisk, f(2 + 4 - 9), ""},
-		{"vendor without Y: unknown, never guessed", classical13("a:1"),
-			MappingEntry{DataClassification: "Secret", ThirdParty: "Vendor X"}, pol, statusUnknown, nil, "never guessed"},
+		{"vendor without Y, X > Z: at risk on the lower bound X - Z", classical13("a:1"),
+			MappingEntry{DataClassification: "Secret", ThirdParty: "Vendor X"}, pol, statusAtRisk, f(10 - 9), "never guessed"},
+		{"vendor without Y, X <= Z: unknown, never guessed", classical13("a:1"),
+			MappingEntry{DataClassification: "Restricted", ThirdParty: "Vendor X"}, pol, statusUnknown, nil, "depends on Y"},
 		{"vendor with Y given: computed", classical13("a:1"),
 			MappingEntry{DataClassification: "Secret", ThirdParty: "Vendor X", MigrationYears: f(5)}, pol, statusAtRisk, f(10 + 5 - 9), ""},
-		{"third_party not stated: unknown", classical13("a:1"),
-			MappingEntry{DataClassification: "Secret"}, pol, statusUnknown, nil, "third_party not stated"},
+		{"third_party not stated, X <= Z: unknown", classical13("a:1"),
+			MappingEntry{DataClassification: "Restricted"}, pol, statusUnknown, nil, "third_party not stated"},
 		{"no classification, no X: unknown", classical13("a:1"),
 			MappingEntry{ThirdParty: "in-house"}, pol, statusUnknown, nil, "X unknown"},
 		{"Z not set: unknown", classical13("a:1"),
@@ -103,6 +105,12 @@ func TestAssessMosca(t *testing.T) {
 			}
 			if (mo.Status == statusMitigated) != (mo.MarginScope == "clients without ML-KEM only") {
 				t.Errorf("status %s with margin scope %q", mo.Status, mo.MarginScope)
+			}
+			if lb := mo.Y == nil && mo.Margin != nil; lb != mo.MarginIsLowerBound {
+				t.Errorf("margin_is_lower_bound = %v with Y %v and margin %v", mo.MarginIsLowerBound, mo.Y, mo.Margin)
+			}
+			if wantFlag := map[bool]string{true: "Y unknown: ask vendor", false: "Y unknown: ask owner"}[tc.entry.ThirdParty == "Vendor X"]; (mo.Y == nil) != (mo.Flag == wantFlag) {
+				t.Errorf("flag = %q with Y %v", mo.Flag, mo.Y)
 			}
 			if tc.noteSubstr != "" && !strings.Contains(strings.Join(mo.Notes, " | "), tc.noteSubstr) {
 				t.Errorf("notes %q lack %q", mo.Notes, tc.noteSubstr)
@@ -207,5 +215,32 @@ func TestHTMLEscapesAndIsSelfContained(t *testing.T) {
 	}
 	if !strings.Contains(page, "&lt;script&gt;") {
 		t.Error("CSV content was not escaped")
+	}
+}
+
+// Within a status: sensitivity, then legacy, then third party, then margin.
+func TestSortWithinStatus(t *testing.T) {
+	at := func(target, class, legacy, third string, margin float64) Asset {
+		return Asset{Target: target, Legacy: legacy, Mapping: &MappingEntry{DataClassification: class, ThirdParty: third},
+			Mosca: Mosca{Status: statusAtRisk, Margin: f(margin)}}
+	}
+	as := []Asset{
+		at("margin-small", "Secret", "no", "in-house", 1),
+		{Target: "unknown", Mosca: Mosca{Status: statusUnknown}, Mapping: &MappingEntry{DataClassification: "Top Secret"}},
+		at("restricted", "Restricted", "yes", "Vendor", 20),
+		at("margin-big", "Secret", "no", "in-house", 5),
+		at("vendor", "Secret", "no", "Vendor", 0.5),
+		at("legacy", "Secret", "yes", "in-house", 0.5),
+		at("top-secret", "Top Secret", "no", "in-house", 0.1),
+		at("unclassified", "", "yes", "Vendor", 30),
+	}
+	sortByPriority(as, fullPolicy())
+	var got []string
+	for _, a := range as {
+		got = append(got, a.Target)
+	}
+	want := "top-secret,legacy,vendor,margin-big,margin-small,restricted,unclassified,unknown"
+	if strings.Join(got, ",") != want {
+		t.Errorf("order = %s\nwant    %s", strings.Join(got, ","), want)
 	}
 }

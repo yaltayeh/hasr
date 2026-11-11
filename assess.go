@@ -9,7 +9,7 @@ import (
 	"github.com/yaltayeh/hasr/internal/cloud"
 )
 
-const reportSchemaVersion = "0.2" // 0.2 added the cloud fields
+const reportSchemaVersion = "0.3" // 0.2 added the cloud fields; 0.3 the margin lower bound and flag
 
 // RiskReport is what `hasr report` writes as JSON and renders as HTML.
 // PROVISIONAL: the schema is not frozen.
@@ -96,7 +96,11 @@ type Mosca struct {
 	// YAssumption: Y is a default the policy marks as an assumption.
 	YAssumption bool     `json:"y_assumption"`
 	Z           *float64 `json:"z"`
-	Margin      *float64 `json:"margin"` // X + Y - Z
+	Margin      *float64 `json:"margin"` // X + Y - Z; X - Z when MarginIsLowerBound
+	// MarginIsLowerBound: Y is unknown, so Margin is X - Z, a lower bound (Y >= 0).
+	MarginIsLowerBound bool `json:"margin_is_lower_bound"`
+	// Flag names the value to ask for when Y is unknown, e.g. "Y unknown: ask vendor".
+	Flag string `json:"flag,omitempty"`
 	// MarginScope says whom the margin applies to, when not all clients.
 	MarginScope string   `json:"margin_scope,omitempty"`
 	Status      string   `json:"status"` // at_risk | not_at_risk | mitigated_pq_clients | unknown
@@ -190,7 +194,7 @@ func buildReport(scan Report, inputs Inputs, mapping []MappingEntry, pol Policy,
 			r.MappedNotScanned = append(r.MappedNotScanned, m)
 		}
 	}
-	sortByPriority(r.Assets)
+	sortByPriority(r.Assets, pol)
 	r.CloudDiscovered = discovered(clouds, usedCloud, mapping)
 
 	r.Completeness = Completeness{
@@ -279,9 +283,27 @@ func assessMosca(t Target, m *MappingEntry, pol Policy) Mosca {
 	if mo.Z == nil {
 		mo.Notes = append(mo.Notes, "Z unknown: not set")
 	}
-	if mo.X != nil && mo.Y != nil && mo.Z != nil {
+	switch {
+	case mo.X != nil && mo.Y != nil && mo.Z != nil:
 		margin := round2(*mo.X + *mo.Y - *mo.Z)
 		mo.Margin = &margin
+	case mo.X != nil && mo.Y == nil && mo.Z != nil:
+		// Y >= 0, so X - Z is a lower bound on the margin. Above 0, the asset is
+		// at risk whatever Y turns out to be (DECISIONS.md, "Mosca lower bound").
+		if lb := round2(*mo.X - *mo.Z); lb > 0 {
+			mo.Margin, mo.MarginIsLowerBound = &lb, true
+			mo.Notes = append(mo.Notes, "margin is a lower bound: X − Z = "+num(lb)+" > 0, and Y ≥ 0")
+		} else {
+			mo.Notes = append(mo.Notes, "X − Z = "+num(lb)+" ≤ 0: the outcome depends on Y")
+		}
+	}
+	if mo.Y == nil {
+		switch {
+		case strings.TrimSpace(m.ThirdParty) != "" && !isInHouse(m.ThirdParty):
+			mo.Flag = "Y unknown: ask vendor"
+		default:
+			mo.Flag = "Y unknown: ask owner"
+		}
 	}
 
 	switch {
@@ -366,10 +388,25 @@ func acceptsClassical(t Target) bool {
 	return false
 }
 
-// sortByPriority: at risk (largest margin first), then unknown, then not at
-// risk (largest margin first), then mitigated. PROVISIONAL order.
-func sortByPriority(as []Asset) {
+// sortByPriority: at risk, then unknown, then not at risk, then mitigated.
+// Within a status: sensitivity (the policy's first level first; no or an
+// unlisted classification last), then legacy, then a third party, then the
+// largest margin (DECISIONS.md, "Order within a status").
+func sortByPriority(as []Asset, pol Policy) {
 	rank := map[string]int{statusAtRisk: 0, statusUnknown: 1, statusNotAtRisk: 2, statusMitigated: 3}
+	sensitivity := func(a Asset) int {
+		if a.Mapping != nil {
+			for i, l := range pol.ClassificationLevels {
+				if l.Label == a.Mapping.DataClassification {
+					return i
+				}
+			}
+		}
+		return len(pol.ClassificationLevels)
+	}
+	third := func(a Asset) bool {
+		return a.Mapping != nil && strings.TrimSpace(a.Mapping.ThirdParty) != "" && !isInHouse(a.Mapping.ThirdParty)
+	}
 	margin := func(a Asset) float64 {
 		if a.Mosca.Margin == nil {
 			return 0
@@ -377,14 +414,23 @@ func sortByPriority(as []Asset) {
 		return *a.Mosca.Margin
 	}
 	sort.SliceStable(as, func(i, j int) bool {
-		ri, rj := rank[as[i].Mosca.Status], rank[as[j].Mosca.Status]
-		if ri != rj {
+		a, b := as[i], as[j]
+		if ri, rj := rank[a.Mosca.Status], rank[b.Mosca.Status]; ri != rj {
 			return ri < rj
 		}
-		if mi, mj := margin(as[i]), margin(as[j]); mi != mj {
+		if si, sj := sensitivity(a), sensitivity(b); si != sj {
+			return si < sj
+		}
+		if li, lj := a.Legacy == "yes", b.Legacy == "yes"; li != lj {
+			return li
+		}
+		if ti, tj := third(a), third(b); ti != tj {
+			return ti
+		}
+		if mi, mj := margin(a), margin(b); mi != mj {
 			return mi > mj
 		}
-		return as[i].Target < as[j].Target
+		return a.Target < b.Target
 	})
 }
 

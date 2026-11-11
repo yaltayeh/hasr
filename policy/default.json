@@ -52,7 +52,7 @@
   },
   "z": {
     "date": "2030-12-31",
-    "source": "NIST IR 8547 (final, 27 October 2026) deprecates all quantum-vulnerable public-key algorithms after 2030. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date.",
+    "source": "NIST IR 8547 (final, 27 October 2026): every quantum-vulnerable public-key algorithm (RSA, ECDSA, EdDSA, finite-field and elliptic-curve Diffie-Hellman) is deprecated after 2030 and disallowed after 2035, at every key size. The November 2024 draft deprecated only the 112-bit parameter sets after 2030; the final report removed that distinction. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date.",
     "links": [
       "https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf",
       "https://www.enisa.europa.eu/media/56885"

@@ -246,7 +246,7 @@ Each entry: date, decision, reason. Only decided items are built.
 ### Z
 
 - **Decision:** Z is the calendar date 2030-12-31, converted to years on each run.
-- **Source text:** "NIST IR 8547 (final, 27 October 2026) deprecates all quantum-vulnerable public-key algorithms after 2030. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date."
+- **Source text (replaced 2026-11-11, see "Expert review, group 1"):** "NIST IR 8547 (final, 27 October 2026) deprecates all quantum-vulnerable public-key algorithms after 2030. The EU Coordinated Implementation Roadmap (June 2025) sets the end of 2030 for high-risk use cases, including finance. SAMA Circular 482021280 sets no migration date."
 - **Links:** https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf and https://www.enisa.europa.eu/media/56885
 - **Verified by the author:**
   - against the final NIST IR 8547 PDF (October 2026). Sections 4.1.1 and 4.1.2 deprecate all quantum-vulnerable digital signature and key-establishment algorithms after 2030 and disallow them after 2035, at all approved strengths;
@@ -559,6 +559,41 @@ Each entry: date, decision, reason. Only decided items are built.
   - the summary's completeness chips stay on one line.
 - **Decision:** The report controls its own A4 margins and footer, "Hasr · SAMA Circular 482021280 · <scan date>" and "Page N of M", using `@page` margin boxes. The README tells readers to turn off the browser's "Headers and footers", which would otherwise print the local file path and print time.
 - **Verification:** Both PDFs were printed with headless Chrome (`--print-to-pdf --no-pdf-header-footer`) from the lab report and every page was checked: summary 2 pages, full 12 pages, no split row, no orphaned title, no large blank gap, and all status badges the same height.
+
+## 2026-11-11 — Expert review, group 1: correctness
+
+The author passed on an expert review of the report design (14 changes). They are built in five groups, each committed on its own. The report is light-only from now on (decided by the author); dark-theme rules leave the page in group 4.
+
+### Mosca lower bound
+
+- **Decision:** When Y is unknown and X and Z are known, the margin is at least X − Z, because Y cannot be negative. If X − Z is above 0, the asset is **At risk** whatever Y turns out to be. The report shows the margin as "≥ +5.86", the bar with a dashed tail to the edge, "Lower bound: Y ≥ 0", and a flag under the status: "Y unknown: ask vendor" for a third party, "Y unknown: ask owner" otherwise.
+- **Decision:** **Unknown** now means a value is missing and the known values do not already show the asset at risk (for Y: X − Z ≤ 0). The lower bound is applied to Y only, as the review asked; a missing X or Z still gives Unknown.
+- **Decision:** The report JSON gains `mosca.margin_is_lower_bound` (true when `margin` is X − Z) and `mosca.flag`. `schema_version` goes to 0.3.
+- **Effect on the lab run:** Lab C (Secret, Example Vendor, Y unknown) moves from Unknown to At risk with margin ≥ +5.86.
+- **Reason:** "Unknown" understated a vendor endpoint whose data alone outlives the deadline; the missing value changes how much it is at risk, not whether.
+
+### Order within a status
+
+- **Decision:** At risk, then unknown, then not at risk, then mitigated, as before. Within a status: sensitivity (the policy's first classification level first; no or an unlisted classification last), then legacy protocols (yes first), then a third-party dependency (not in-house first), then the largest margin, then the target. The legend under the priority table states the order, and each row shows the classification and third party under the system.
+- **Effect on the lab run:** Lab C is now first, ahead of Lab B (Restricted) although Lab B's margin is larger.
+- **Reason:** With the default values, X exceeds Z for every non-Public class, so the margin barely separates assets; sensitivity, legacy protocols and vendor dependency are what a committee ranks by.
+
+### Scope and completeness wording
+
+- **Decision:** Every report states its scope under the headline: "Scope: TLS endpoints only. Not covered: SSH, VPN, HSMs and key stores, application code, databases. The figures are not a measure of all cryptographic assets."
+- **Decision:** Completeness is "3 of 5 TLS targets in the mapping file" (plus TLS endpoints found in the cloud, when cloud files are given), with "Out of scope, and not counted: cryptographic assets other than TLS endpoints." The headline says "TLS endpoints" instead of "assets".
+- **Decision:** The cards gain one line each saying what they count (for example "X + Y > Z (1 with Y unknown)"). A line under the cards counts targets that need a value from their vendor or owner, and Completeness gains a "Missing values" list: the target, the flag, why Y is missing and the status meanwhile.
+- **Reason:** A figure such as "3/5" read as a measure of all cryptographic assets, which Clause 2 covers and Hasr does not.
+
+### Z source text and what the defaults imply
+
+- **Decision:** Z's source text in `policy/default.json` now reads: "NIST IR 8547 (final, 27 October 2026): every quantum-vulnerable public-key algorithm (RSA, ECDSA, EdDSA, finite-field and elliptic-curve Diffie-Hellman) is deprecated after 2030 and disallowed after 2035, at every key size. The November 2024 draft deprecated only the 112-bit parameter sets after 2030; the final report removed that distinction." The EU and SAMA sentences are unchanged. It replaces the text in "Policy values" above, which the author had verified against the final report.
+- **Decision:** Values and sources ends with "What these defaults imply", generated from the policy whenever a level's default X is larger than Z: with X = 10 for Top Secret, Secret and Restricted and Z = 4.14, every endpoint of those levels with classical key exchange is at risk whatever its Y; the order within At risk then comes from sensitivity, legacy, third party and margin; a shorter X needs a per-entry value with its own source.
+- **Reason:** The draft and the final report differ on exactly the point the date rests on; and a reader should see that the defaults, not the scan, decide most of the at-risk statuses.
+
+### Print
+
+- **Decision:** In print, the scope line, the defaults note and the completeness sentence never split, and the margin's X, Y, Z line stays on one line.
 
 ## Corrections
 

@@ -63,7 +63,11 @@ target succeeded.
 
 `hasr report` ranks assets by Mosca's inequality, X + Y > Z: X is how long the
 data must stay confidential, Y how long migration takes, and Z the time until the
-quantum threat or a regulatory deadline. The default policy sets Z to 31 December
+quantum threat or a regulatory deadline. When Y is unknown (a vendor's timeline is
+never guessed), X − Z is a lower bound: above 0, the asset is at risk whatever Y
+is, and the report shows "≥" and asks for the value. Within a status, assets are
+ordered by sensitivity, then legacy protocols, then third-party dependency, then
+margin. The default policy sets Z to 31 December
 2030 (the NIST IR 8547 deprecation date and the EU roadmap deadline for high-risk
 use cases), with its source printed in the report. [DECISIONS.md](DECISIONS.md)
 records every rule and the reason for it.

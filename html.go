@@ -113,12 +113,12 @@ type glossEntry struct{ ID, Term, Text string }
 
 var glossary = []glossEntry{
 	{"mosca", "Mosca's inequality", "An asset is at risk when X + Y > Z. X: years the data must stay confidential. Y: years to migrate. Z: the time until the quantum threat or a regulatory deadline, in years."},
-	{"margin", "Margin", "X + Y − Z, in years. Above 0, migration would finish after the deadline, so the asset is at risk. The bar runs from −10 to +10 years; larger values are pinned at the edge."},
-	{"status", "Status", "At risk: margin above 0. Not at risk: margin 0 or below. Mitigated for PQ-capable clients: hybrid key exchange is available, but clients without post-quantum support still get classical key exchange. Unknown: a value needed for the margin is missing."},
+	{"margin", "Margin", "X + Y − Z, in years. Above 0, migration would finish after the deadline, so the asset is at risk. The bar runs from −10 to +10 years; larger values are pinned at the edge. \"≥\" marks a lower bound: when Y is unknown the margin is at least X − Z, since Y cannot be negative; a dashed tail on the bar shows it."},
+	{"status", "Status", "At risk: margin above 0, or, when Y is unknown, X − Z above 0, so the asset is at risk whatever Y is. Not at risk: margin 0 or below. Mitigated for PQ-capable clients: hybrid key exchange is available, but clients without post-quantum support still get classical key exchange. Unknown: a value needed for the margin is missing and the known values do not already show the asset at risk."},
 	{"kex", "Key exchange", "How the TLS session key is agreed. Classical (for example x25519) traffic can be recorded now and decrypted later by a quantum computer. Hybrid (X25519MLKEM768) adds ML-KEM and resists that."},
 	{"legacy", "Legacy", "The endpoint still accepts TLS 1.0 or 1.1, or weak cipher suites (RSA key transport, 3DES, RC4)."},
 	{"action", "Next action", "The first recommended action for the asset. The row's details list every finding with its action (Clause 3)."},
-	{"completeness", "Completeness", "How many known targets were scanned and fully assessed. Known targets are the mapping file's rows, plus endpoints found in the cloud."},
+	{"completeness", "Completeness", "TLS targets in the mapping file (plus TLS endpoints found in the cloud, when cloud records are given) that were scanned and fully assessed. Cryptographic assets other than TLS endpoints are out of scope and not counted."},
 	{"notassessed", "Not assessed", "Mapped and scanned, but unreachable or incomplete. Never treated as low priority."},
 	{"nottested", "Not tested", "What this scanner cannot check, for example SSL 3.0 or finite-field DHE, which Go's TLS library does not implement. Never read as \"not supported\"."},
 	{"agility", "Crypto-agility evidence (Clause 2b)", "Hasr's crypto-agility rating is planned and not in this version. Each row's details show the evidence the scan shows today: TLS versions, key-exchange findings, third party and constraints."},
@@ -149,6 +149,12 @@ type htmlView struct {
 	Segments []segment
 	// Probes is the per-target probe evidence from the scan, for the appendix.
 	Probes []probeGroup
+	// LowerBound counts at-risk assets whose margin is a lower bound (Y unknown).
+	LowerBound int
+	// AskVendor and AskOwner are assessed assets whose Y is missing, by whom to ask.
+	AskVendor, AskOwner []Asset
+	// DefaultsNote says what the default X and Z imply, or is empty.
+	DefaultsNote string
 }
 
 type segment struct {
@@ -182,7 +188,18 @@ func writeHTML(w io.Writer, r RiskReport, targets []Target) error {
 	v := htmlView{RiskReport: r, Circular: circular, Clauses: clauses, Glossary: glossary, Counts: map[string]int{}, CSS: template.CSS(reportCSS)}
 	for _, a := range r.Assets {
 		v.Counts[a.Mosca.Status]++
+		if a.Mosca.Status == statusAtRisk && a.Mosca.MarginIsLowerBound {
+			v.LowerBound++
+		}
+		switch a.Mosca.Flag {
+		case "":
+		case "Y unknown: ask vendor":
+			v.AskVendor = append(v.AskVendor, a)
+		default:
+			v.AskOwner = append(v.AskOwner, a)
+		}
 	}
+	v.DefaultsNote = defaultsNote(r.Policy)
 	for _, list := range [][]Asset{r.Assets, r.NeedsOwnerInput, r.NotAssessed} {
 		for _, a := range list {
 			if a.Legacy == "yes" {
@@ -241,19 +258,19 @@ func headline(r RiskReport, counts map[string]int) string {
 	case c.Assessed == 0:
 		s = append(s, "No mapped target was fully assessed.")
 	case atRisk == 0:
-		s = append(s, "None of the "+plural(c.Assessed, "assessed asset", "assessed assets")+" is at risk.")
+		s = append(s, "None of the "+plural(c.Assessed, "assessed TLS endpoint", "assessed TLS endpoints")+" is at risk.")
 	default:
 		verb := " are"
 		if atRisk == 1 {
 			verb = " is"
 		}
-		s = append(s, strconv.Itoa(atRisk)+" of "+plural(c.Assessed, "assessed asset", "assessed assets")+verb+" at risk.")
+		s = append(s, strconv.Itoa(atRisk)+" of "+plural(c.Assessed, "assessed TLS endpoint", "assessed TLS endpoints")+verb+" at risk.")
 	}
 	if n := counts[statusUnknown]; n > 0 {
 		s = append(s, map[bool]string{true: "1 has", false: strconv.Itoa(n) + " have"}[n == 1]+" unknown priority.")
 	}
 	if n := c.NotAssessed; n > 0 {
-		s = append(s, plural(n, "mapped asset", "mapped assets")+" could not be assessed.")
+		s = append(s, plural(n, "mapped TLS endpoint", "mapped TLS endpoints")+" could not be assessed.")
 	}
 	if n := c.NeedsOwnerInput; n > 0 {
 		s = append(s, plural(n, "scanned target needs", "scanned targets need")+" owner input.")
@@ -267,6 +284,39 @@ func headline(r RiskReport, counts map[string]int) string {
 	return strings.Join(s, " ")
 }
 
+// defaultsNote says what the policy's defaults imply: when a level's default X
+// is already larger than Z, every endpoint of that level with classical key
+// exchange is at risk whatever its Y. Empty when no level is in that case.
+func defaultsNote(p Policy) string {
+	if p.Z.Years == nil {
+		return ""
+	}
+	z := *p.Z.Years
+	var labels []string
+	xs := map[float64]bool{}
+	for _, l := range p.ClassificationLevels {
+		if x := l.ShelfLife.Years; x != nil && *x > z {
+			labels = append(labels, l.Label)
+			xs[*x] = true
+		}
+	}
+	if len(labels) == 0 {
+		return ""
+	}
+	list := labels[0]
+	if n := len(labels); n > 1 {
+		list = strings.Join(labels[:n-1], ", ") + " and " + labels[n-1]
+	}
+	x := "X for " + list
+	if len(xs) == 1 {
+		for v := range xs {
+			x = "X = " + num(v) + " for " + list
+		}
+	}
+	return "With " + x + " and Z = " + num(z) + ", X is already larger than Z. So every " + list +
+		" endpoint with classical key exchange is at risk, whatever its Y. The status confirms exposure; the order within At risk comes from sensitivity, legacy protocols, third-party dependency and margin. A shorter X for an entry needs a per-entry value with its own source."
+}
+
 // marginScale is the margin bar's half-width in years; larger margins are pinned at the edge.
 const marginScale = 10.0
 
@@ -277,16 +327,32 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 		}
 		return num(*v)
 	},
-	"signed": func(v *float64) string {
-		switch {
-		case v == nil:
-			return "—"
-		case *v > 0:
-			return "+" + num(*v)
-		case *v < 0:
-			return "−" + num(-*v)
+	"signed": signedYears,
+	// margin is the margin column's value: "≥ +5.86" when it is a lower bound.
+	"margin": func(m Mosca) string {
+		s := signedYears(m.Margin)
+		if m.MarginIsLowerBound {
+			return "≥ " + s
 		}
-		return "0"
+		return s
+	},
+	// tail is the dashed extension of a lower-bound bar, from its end to the edge.
+	"tail": func(m *float64) template.CSS {
+		if m == nil || *m <= 0 {
+			return "width:0"
+		}
+		w := math.Min(*m/marginScale, 1) * 50
+		return template.CSS("left:" + strconv.FormatFloat(50+w, 'f', 1, 64) + "%;width:" + strconv.FormatFloat(50-w, 'f', 1, 64) + "%")
+	},
+	// xyz is the margin's inputs in one line: "X 10 · Y ? · Z 4.14".
+	"xyz": func(m Mosca) string {
+		v := func(p *float64) string {
+			if p == nil {
+				return "?"
+			}
+			return num(*p)
+		}
+		return "X " + v(m.X) + " · Y " + v(m.Y) + " · Z " + v(m.Z)
 	},
 	"src": func(s Sourced) string {
 		if s.Years == nil {
@@ -343,6 +409,7 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 	"plural":             plural,
 	"disagreementCauses": func() string { return disagreementCauses },
 	"join":               strings.Join,
+	"hasPrefix":          strings.HasPrefix,
 	"versions":           shortVersions,
 	"short":              shortRef,
 	"key":                func(pk PublicKey) string { return pk.keyLabel() },
@@ -352,6 +419,19 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 	"slice3":             func(a, b, c []Asset) [][]Asset { return [][]Asset{a, b, c} },
 	"more":               func(fs []Finding) int { return len(fs) - 1 },
 }).Parse(reportHTML))
+
+// signedYears prints a margin with its sign: +5.86, −1, 0, or — when unknown.
+func signedYears(v *float64) string {
+	switch {
+	case v == nil:
+		return "—"
+	case *v > 0:
+		return "+" + num(*v)
+	case *v < 0:
+		return "−" + num(-*v)
+	}
+	return "0"
+}
 
 // num prints a number of years without float noise: 4.15, 10, 0.5.
 func num(v float64) string { return strconv.FormatFloat(round2(v), 'f', -1, 64) }
@@ -399,21 +479,23 @@ const reportHTML = reportIcons + `<!doctype html>
   <div class="printbtns"><button type="button" id="print-summary">Print summary</button><button type="button" id="print-full">Print full report</button></div>
 </header>
 <p class="headline">{{.Headline}}</p>
+<p class="scope"><strong>Scope: TLS endpoints only{{if .Inputs.Cloud}}, from the scan and the cloud load-balancer records{{end}}.</strong> Not covered: SSH, VPN, HSMs and key stores, application code, databases. The figures are not a measure of all cryptographic assets.</p>
 {{if .MissingValues}}<div class="banner"><strong>Mosca values not set:</strong> {{join .MissingValues "; "}}. Until they are provided, the at-risk status is "Unknown" wherever a missing value is needed.</div>{{end}}
 
 <section class="cards" aria-label="Status">
-  <div class="card b-risk"><span class="cnum t-risk">{{index .Counts "at_risk"}}</span><span class="clabel t-risk">{{template "i-risk"}}At risk</span></div>
-  <div class="card b-unk"><span class="cnum t-unk">{{index .Counts "unknown"}}</span><span class="clabel t-unk">{{template "i-unk"}}Unknown</span></div>
-  <div class="card"><span class="cnum t-ok">{{index .Counts "mitigated_pq_clients"}}</span><span class="clabel t-ok">{{template "i-ok"}}Mitigated</span></div>
-  <div class="card"><span class="cnum">{{index .Counts "not_at_risk"}}</span><span class="clabel t-ok">{{template "i-ok"}}Not at risk</span></div>
-  <div class="card"><span class="cnum t-na">{{.Completeness.NotAssessed}}</span><span class="clabel t-na">{{template "i-na"}}Not assessed</span></div>
+  <div class="card b-risk"><span class="cnum t-risk">{{index .Counts "at_risk"}}</span><span class="clabel t-risk">{{template "i-risk"}}At risk</span><span class="csub">X + Y &gt; Z{{with .LowerBound}} ({{.}} with Y unknown){{end}}</span></div>
+  <div class="card b-unk"><span class="cnum t-unk">{{index .Counts "unknown"}}</span><span class="clabel t-unk">{{template "i-unk"}}Unknown</span><span class="csub">a value is missing; the outcome depends on it</span></div>
+  <div class="card"><span class="cnum t-ok">{{index .Counts "mitigated_pq_clients"}}</span><span class="clabel t-ok">{{template "i-ok"}}Mitigated</span><span class="csub">for PQ-capable clients</span></div>
+  <div class="card"><span class="cnum">{{index .Counts "not_at_risk"}}</span><span class="clabel t-ok">{{template "i-ok"}}Not at risk</span><span class="csub">X + Y ≤ Z, or hybrid only</span></div>
+  <div class="card"><span class="cnum t-na">{{.Completeness.NotAssessed}}</span><span class="clabel t-na">{{template "i-na"}}Not assessed</span><span class="csub">unreachable or incomplete</span></div>
   <div class="card compcard">
-    <span class="cnum sm">{{.Completeness.Assessed}}/{{.Completeness.Known}}</span>
-    <div class="segs" role="img" aria-label="{{.Completeness.Assessed}} of {{.Completeness.Known}} assessed">{{range .Segments}}<span class="seg s-{{.Class}}" style="flex-grow:{{.N}}"></span>{{end}}</div>
+    <span class="cnum sm">{{.Completeness.Assessed}} of {{.Completeness.Known}}</span>
+    <div class="segs" role="img" aria-label="{{.Completeness.Assessed}} of {{.Completeness.Known}} TLS targets assessed">{{range .Segments}}<span class="seg s-{{.Class}}" style="flex-grow:{{.N}}"></span>{{end}}</div>
     <span class="clabel">Completeness {{template "info" "completeness"}}</span>
+    <span class="csub">{{if .Completeness.CloudDiscovered}}TLS targets in the mapping file and the cloud, assessed{{else}}TLS targets in the mapping file, assessed{{end}}</span>
   </div>
 </section>
-{{with index .Counts "legacy"}}<p class="legacyline"><span class="tag c-risk">{{plural . "target" "targets"}}</span> accepting legacy protocols or weak suites {{template "info" "legacy"}}</p>{{end}}
+{{if or (index .Counts "legacy") .AskVendor .AskOwner}}<p class="legacyline">{{with index .Counts "legacy"}}<span class="lline"><span class="tag c-risk">{{.}}</span>{{if eq . 1}}target accepts{{else}}targets accept{{end}} legacy protocols or weak suites {{template "info" "legacy"}}</span>{{end}}{{with .AskVendor}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its vendor{{else}}targets need a value from their vendors{{end}} (Y)</a>{{end}}{{with .AskOwner}}<a class="lline" href="#missing-entry-values"><span class="tag c-unk">{{len .}}</span>{{if eq (len .) 1}}target needs a value from its owner{{else}}targets need a value from their owners{{end}} (Y)</a>{{end}}</p>{{end}}
 
 <section id="priority" class="block">
   <div class="sechead"><h2>Migration priority</h2><a class="tag c-clause" href="#sama-clause-2">Clause 2a</a>{{template "info" "mosca"}}</div>
@@ -424,10 +506,12 @@ const reportHTML = reportIcons + `<!doctype html>
     <tbody class="asset{{if eq $a.Mosca.Status "at_risk"}} row-risk{{end}}">
       <tr>
         <td class="mono nowrap">{{$a.Target}}</td>
-        <td><span class="strong">{{$a.Mapping.System}}</span>{{with $a.Mapping.Service}}<span class="note">{{.}}</span>{{end}}</td>
-        <td>{{template "statusChip" $a.Mosca.Status}}</td>
+        <td><span class="strong">{{$a.Mapping.System}}</span>{{with $a.Mapping.Service}}<span class="note">{{.}}</span>{{end}}<span class="note">{{dash $a.Mapping.DataClassification}}{{with $a.Mapping.ThirdParty}} · {{.}}{{end}}</span></td>
+        <td>{{template "statusChip" $a.Mosca.Status}}{{with $a.Mosca.Flag}}<span class="tag c-unk flag">{{.}}</span>{{end}}</td>
         <td class="margin">
-          <div class="mrow"><span class="mval t-{{sc $a.Mosca.Status}}">{{signed $a.Mosca.Margin}}</span><span class="track{{if not $a.Mosca.Margin}} empty{{end}}" aria-hidden="true"><span class="zero"></span>{{if $a.Mosca.Margin}}<span class="fill f-{{$a.Mosca.Status}}" style="{{bar $a.Mosca.Margin}}"></span>{{end}}</span></div>
+          <div class="mrow"><span class="mval t-{{sc $a.Mosca.Status}}">{{margin $a.Mosca}}</span><span class="track{{if not $a.Mosca.Margin}} empty{{end}}" aria-hidden="true"><span class="zero"></span>{{if $a.Mosca.Margin}}<span class="fill f-{{$a.Mosca.Status}}" style="{{bar $a.Mosca.Margin}}"></span>{{if $a.Mosca.MarginIsLowerBound}}<span class="ext" style="{{tail $a.Mosca.Margin}}"></span>{{end}}{{end}}</span></div>
+          <span class="note mono">{{xyz $a.Mosca}}</span>
+          {{if $a.Mosca.MarginIsLowerBound}}<span class="note">Lower bound: Y ≥ 0</span>{{end}}
           {{if $a.Mosca.MarginScope}}<span class="note">({{$a.Mosca.MarginScope}})</span>{{end}}
         </td>
         <td><span class="tag c-{{kexc $a.KeyExchange}}">{{$a.KeyExchange}}</span></td>
@@ -463,14 +547,16 @@ const reportHTML = reportIcons + `<!doctype html>
     </tbody>
     {{end}}
   </table></div>
-  <p class="legend">Bar: X+Y−Z in years; right of 0 = migration finishes after the deadline. Scale ±10 years.</p>
+  <p class="legend">Bar: X+Y−Z in years; right of 0 = migration finishes after the deadline. Scale ±10 years. A dashed tail marks a lower bound (Y unknown). Order: at risk, unknown, not at risk, mitigated; within each, sensitivity (highest classification first), then legacy protocols, then third-party dependency, then margin.</p>
   {{else}}<p class="empty">No mapped target was fully assessed.</p>{{end}}
 </section>
 
 <section id="completeness" class="block">
   <div class="sechead"><h2>Completeness</h2>{{template "info" "completeness"}}</div>
-  {{if .Completeness.CloudDiscovered}}<p class="hint">{{.Completeness.Assessed}} of {{.Completeness.Known}} known targets ({{.Completeness.Mapped}} mapped, plus {{.Completeness.CloudDiscovered}} found in the cloud and not in the target list) were scanned and fully assessed.</p>{{end}}
+  <p class="hint"><strong class="ink">{{.Completeness.Assessed}} of {{.Completeness.Known}}</strong> TLS targets {{if .Completeness.CloudDiscovered}}known ({{.Completeness.Mapped}} in the mapping file, plus {{.Completeness.CloudDiscovered}} found in the cloud and not in the target list){{else}}in the mapping file{{end}} were scanned and fully assessed. Out of scope, and not counted: cryptographic assets other than TLS endpoints.</p>
   <div class="counts">
+    <a href="#missing-entry-values"><span class="chip c-unk">{{template "i-unk"}}{{len .AskVendor}}</span>Missing values: Y from a vendor</a>
+    {{with .AskOwner}}<a href="#missing-entry-values"><span class="chip c-unk">{{template "i-unk"}}{{len .}}</span>Missing values: Y from an owner</a>{{end}}
     <a href="#needs-owner-input"><span class="chip c-unk">{{template "i-unk"}}{{.Completeness.NeedsOwnerInput}}</span>Needs owner input</a>
     <a href="#mapped-not-scanned"><span class="chip c-na">{{template "i-na"}}{{.Completeness.MappedNotScanned}}</span>Mapped but not scanned</a>
     <a href="#not-assessed"><span class="chip c-na">{{template "i-na"}}{{.Completeness.NotAssessed}}</span>Not assessed {{template "info" "notassessed"}}</a>
@@ -480,6 +566,18 @@ const reportHTML = reportIcons + `<!doctype html>
     <a href="#cloud-limits"><span class="chip c-na">{{template "i-na"}}{{len .CloudLimits}}</span>Not read: stated limits of the cloud collectors</a>{{end}}
   </div>
   <div class="lists">
+    <details class="ev" id="missing-entry-values">
+      <summary>{{template "i-chev"}}Missing values<span class="meta">{{len .AskVendor}} from vendors · {{len .AskOwner}} from owners</span></summary>
+      <div class="evbody">
+      {{if or .AskVendor .AskOwner}}
+        <p class="hint">Assessed, but Y (migration years) is missing. Hasr never guesses a vendor's timeline. Set <span class="mono">migration_years</span> in the mapping file once the answer comes.</p>
+        <div class="box"><table class="tbl">
+          <thead><tr><th>Target</th><th>System</th><th>Ask</th><th>Why Y is missing</th><th>Status meanwhile</th></tr></thead>
+          <tbody>{{range (slice3 .AskVendor .AskOwner nil)}}{{range .}}<tr><td class="mono nowrap">{{.Target}}</td><td>{{.Mapping.System}}{{with .Mapping.ThirdParty}}<span class="note">{{.}}</span>{{end}}</td><td><span class="tag c-unk">{{.Mosca.Flag}}</span></td><td class="muted small">{{range .Mosca.Notes}}{{if hasPrefix . "Y unknown"}}{{.}}{{end}}{{end}}</td><td>{{template "statusChip" .Mosca.Status}}{{if .Mosca.MarginIsLowerBound}}<span class="note">X − Z = {{signed .Mosca.Margin}} &gt; 0, whatever Y is</span>{{else if eq .Mosca.Status "unknown"}}<span class="note">depends on Y</span>{{end}}</td></tr>{{end}}{{end}}</tbody>
+        </table></div>
+      {{else}}<p class="empty">None.</p>{{end}}
+      </div>
+    </details>
     <details class="ev" id="needs-owner-input">
       <summary>{{template "i-chev"}}Needs owner input<span class="meta">{{.Completeness.NeedsOwnerInput}}</span></summary>
       <div class="evbody">
@@ -610,6 +708,7 @@ const reportHTML = reportIcons + `<!doctype html>
         </tbody>
       </table></div>
       <p class="hint">Default Y applies only to endpoints whose third_party is "in-house"; a vendor's timeline is never guessed.</p>
+      {{with .DefaultsNote}}<p class="implies"><strong>What these defaults imply.</strong> {{.}}</p>{{end}}
     </div>
   </details>
 
@@ -755,7 +854,13 @@ h1 a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);t
 .segs{display:flex;gap:3px}
 .seg{height:8px;border-radius:2px;flex-basis:0;min-width:3px}
 .s-risk{background:var(--risk)}.s-unk{background:var(--unk)}.s-ok{background:var(--ok)}.s-na{background:var(--na-line)}
-.legacyline{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;font-size:13px;color:var(--muted)}
+.legacyline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;margin:12px 0 0;font-size:13px;color:var(--muted)}
+.lline{display:inline-flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none}a.lline:hover{color:var(--accent)}
+.scope{margin:12px 0 0;padding:8px 12px;background:var(--raised);border-radius:10px;font-size:13px;color:var(--ink-soft);max-width:900px}
+.scope strong{color:var(--ink)}
+.csub{font-size:11.5px;line-height:1.35;color:var(--dim)}
+.flag{margin-top:4px;font-size:11px;padding:1px 6px}
+.implies{margin:0;padding:10px 12px;border:1px solid var(--unk-line);border-radius:10px;background:var(--unk-bg);color:var(--ink);font-size:13px}
 .block{margin-top:36px;display:flex;flex-direction:column;gap:12px}
 .sechead{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .sechead h2{font-size:20px;letter-spacing:-.01em}
@@ -780,6 +885,8 @@ h1 a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);t
 .track.empty{border:1px dashed var(--unk-line)}
 .zero{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--faint)}
 .fill{position:absolute;top:0;bottom:0;border-radius:4px}
+.ext{position:absolute;top:3px;height:0;border-top:2px dashed var(--risk)}
+.margin .note.mono{white-space:nowrap}
 .f-at_risk{background:var(--risk)}.f-not_at_risk{background:var(--ok)}.f-mitigated_pq_clients{background:var(--ok);opacity:.55}.f-unknown{background:var(--unk)}
 .chip{white-space:nowrap}
 .action{font-size:13px;color:var(--ink-soft);min-width:240px}
@@ -851,7 +958,8 @@ body{font-size:10pt;background:#fff}
 .box{overflow:visible}
 .tbl thead{display:table-header-group}
 .tbl thead{display:table-header-group}
-.tbl tr,.priority tbody.asset,.gi,.limits li,.clausetext .quote,.facts dl>*{break-inside:avoid}
+.tbl tr,.priority tbody.asset,.gi,.limits li,.clausetext .quote,.facts dl>*,.implies,.scope,#completeness>.hint{break-inside:avoid}
+p,li{orphans:2;widows:2}
 h2,h3,h4,.sechead,.ev>summary,.sub,.hint,.clausetext h3{break-after:avoid}
 /* flex and grid containers do not fragment cleanly: plain block layout in print */
 .block,.lists,.evbody,.clausetext,.facts,.probes{display:block}

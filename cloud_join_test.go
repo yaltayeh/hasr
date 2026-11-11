@@ -161,7 +161,7 @@ func TestCloudJoin(t *testing.T) {
 	}
 	for _, want := range []string{"Found in the cloud, not in the target list", "Scan and cloud records disagree",
 		"cname match", "from tag &#34;Owner&#34; on aws lb-d", "Default Y: managed TLS policy (cloud)", "--cloud aws.json",
-		"known targets (4 mapped, plus 2 found in the cloud"} {
+		"TLS targets known (4 in the mapping file, plus 2 found in the cloud"} {
 		if !strings.Contains(page.String(), want) {
 			t.Errorf("HTML lacks %q", want)
 		}
