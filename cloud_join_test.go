@@ -156,7 +156,7 @@ func TestCloudJoin(t *testing.T) {
 	}
 
 	var page bytes.Buffer
-	if err := writeHTML(&page, r); err != nil {
+	if err := writeHTML(&page, r, scan.Targets); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Found in the cloud, not in the target list", "Scan and cloud records disagree",
@@ -175,7 +175,7 @@ func TestCloudJoinWithoutCloud(t *testing.T) {
 		t.Errorf("without cloud records the scan category must apply, got %q", r.Assets[0].Mosca.YSource)
 	}
 	var page bytes.Buffer
-	if err := writeHTML(&page, r); err != nil {
+	if err := writeHTML(&page, r, scan.Targets); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(page.String(), "Found in the cloud") {

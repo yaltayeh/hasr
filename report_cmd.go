@@ -80,7 +80,7 @@ func runReport(args []string) int {
 	r.Tool = Tool{Name: "hasr", Go: runtime.Version()}
 
 	var page bytes.Buffer
-	if err := writeHTML(&page, r); err != nil {
+	if err := writeHTML(&page, r, scan.Targets); err != nil {
 		fmt.Fprintln(os.Stderr, "rendering HTML:", err)
 		return 2
 	}

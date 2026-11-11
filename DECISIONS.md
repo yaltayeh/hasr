@@ -496,6 +496,70 @@ Each entry: date, decision, reason. Only decided items are built.
 - **Reason:** `net.SplitHostPort` does not validate the port, and the CSV is matched to scan targets on exact `host:port`. Without one form, `bank.sa:443` on the command line and `BANK.SA.:443` in the CSV would not match.
 - **Unchanged:** The probe dials the full `host:port`. SNI carries the host alone, and none is sent for an IP address (including IPv6 with a zone).
 
+## 2026-11-10 — Report redesign
+
+### Visual redesign of the HTML report
+
+- **Decision:** The report was redesigned first as a Claude Design canvas (light, dark and A4 print boards, using the lab run). The author approved it, and `html.go` now follows it. Only the presentation changed; the data, the logic and the report JSON did not.
+- **Decision:** Order of the page:
+  - a header with the circular's number, title and date, the scan date, the scope and the completeness figure;
+  - at-a-glance cards: At risk, Unknown, Mitigated, Not at risk, Not assessed, and Completeness with a bar of one segment per status;
+  - four clause tiles with their due dates;
+  - the Clause 2a priority table as the hero;
+  - Clauses 1–4, each with a clause badge, a due-date chip, the quoted text, and "What Hasr provides" beside "What the institution still has to do";
+  - the appendix.
+- **Decision:** Evidence sits in collapsed sections: values with their sources, certificates, the scanner's stated limits, the cloud collectors' limits, probes, inputs, method, and the circular's distribution.
+- **Decision:** The appendix gains a Probes section: each target's handshakes from the scan (offer, result, negotiated version, suite and group, detail), with each offer named in the Method paragraph's words. `writeHTML` takes the scan's targets for it; the report JSON is unchanged.
+- **Decision:** Colour has one meaning everywhere: red is at risk, amber is unknown or needs owner input, green is mitigated or not at risk, grey is not assessed or not tested. Key-exchange and legacy tags follow the same scale. Every chip carries an icon and a text label, so colour is never the only signal.
+- **Decision:** The margin bar shows X+Y−Z on a scale of −10 to +10 years; values beyond it are pinned at the edge. A legend under the table says so: "Bar: X+Y−Z in years; right of 0 = migration finishes after the deadline. Scale ±10 years."
+- **Decision:** Wording is unchanged except:
+  - the header ("Hasr — Cryptographic inventory report") and the card labels;
+  - the completeness list, where counts became chips ("Needs owner input: scanned, not in the mapping file");
+  - the scanner limits, shown as a tag and its detail;
+  - the "(unofficial translation)" label beside clause headings, which was dropped (each quote keeps "Unofficial translation by the author");
+  - a link from Clause 2 back to the priority table, and an "Evidence" eyebrow on the appendix;
+  - the typo "the scan show today", which now reads "the scan shows today".
+- **Decision:** It is still one self-contained offline file: inline CSS, inline SVG icons, system fonts, no images or web fonts. Light and dark follow `prefers-color-scheme`.
+- **Decision:** Printing always uses the light palette on white on A4, with each clause on a new page, table headers repeated on each page, and a page footer. Every evidence section prints open: the CSS `::details-content` rule does this where the browser supports it, and a four-line `beforeprint` script opens the sections elsewhere. It is the page's only script, and the page reads the same without it.
+- **Decision:** `docs/report.png` now shows the top of one lab report in a single piece: the header, the cards, the clause tiles and the priority table. It replaces the two joined parts.
+- **Reason:** In the first five seconds, a bank's information-security committee and the judges see what is at risk, how many assets there are, how complete the inventory is, and which clause each part answers.
+
+## 2026-11-11 — Report restructure: first screen and progressive disclosure
+
+- **Decision:** The first screen answers "what is at risk and what do I do":
+  - one title line, "Hasr · SAMA Circular 482021280 · <scan date>";
+  - one generated headline sentence built from the counts (for example "1 of 3 assessed assets is at risk. 1 has unknown priority. 2 mapped assets could not be assessed.");
+  - status cards with a number and a label only, and completeness as one bar with "3/5";
+  - the priority table, with seven columns: Target, System, Status, Margin (with bar), Key exchange, Legacy, Next action.
+- **Decision:** Next action is the asset's first recommended action (Clause 3), with "+N more" when there are others. Owner, classification, X, Y, Z, status notes, third party, constraints, TLS versions, cloud records and every finding open per row (details/summary). This merges the former 2b table and the Clause 3 action tables into the rows.
+- **Decision:** Below the table come Completeness (counts as chips, each list collapsed) and one "Clause coverage" table: Clause | Due | Hasr covers | Institution must, in short phrases written for this table.
+- **Decision:** The appendix is all collapsed: SAMA Circular, Glossary, Values and sources, Certificates, Probes, Method, Inputs, and How to reproduce. The SAMA Circular section holds the full clause texts, the Provides and Institution lists, the distribution, and "Unofficial translation by the author" once.
+- **Decision:** Clause badges and the "SAMA Circular" link in the title are in-page links to that section; the report stays one file.
+- **Decision:** An ⓘ next to a term (Mosca, status, margin, key exchange, legacy, next action, completeness, not assessed, not tested, crypto-agility, each clause) shows a short explanation on hover, on tap and on keyboard focus, with CSS only. Every explanation is also in the Glossary, so it prints.
+- **Decision:** Printing:
+  - the default print, and the only one without JavaScript, is the summary: the first screen, the completeness counts and the clause coverage, two A4 pages for the lab run;
+  - "Print summary" and "Print full report" are buttons, shown only when the script runs;
+  - the full print opens every details element, prints, and restores the open state afterwards;
+  - the script is inline, about ten lines, and also opens a collapsed section when an in-page link points into it.
+- **Decision:** Duplicates removed: completeness is shown once at the top, each due date once (in Clause coverage), the circular's title once, and the input files once (in Inputs). Fixed "1 targets" to "1 target", and "the scan show" to "the scan shows".
+- **Decision:** Two values from the report data that were not on the page before are now shown: a not-assessed asset's service, and a certificate's chain error.
+- **Reason:** A committee member or judge gets the answer in the first screen, in under 60 words of prose; the evidence is one click away; and nothing is lost in print.
+
+## 2026-11-11 — Print fixes
+
+- **Decision:** The status badge for a mitigated asset reads "Mitigated", the same size and shape as the other badges and never wrapped. "for PQ-capable clients" is a small muted line under it, like the "(clients without ML-KEM only)" note under Margin. The full meaning stays in the Status tooltip and the Glossary. The report JSON keeps the status `mitigated_pq_clients`.
+- **Reason:** In print, "Mitigated for PQ-capable clients" wrapped to four lines inside a pill and rendered as a large circle, taller than the row.
+- **Decision:** Print layout:
+  - table rows and glossary entries never split, and table headers repeat on each page;
+  - headings and section titles stay with what follows them;
+  - flex and grid containers (sections, lists, the glossary, the circular, a row's details) become block layout in print, because Chrome does not split them cleanly across pages;
+  - cards and panels may split, with `box-decoration-break: clone` so each part keeps its border;
+  - in the full print, a priority row stays with the start of its details, and long details continue on the next page instead of leaving the rest of the page blank;
+  - the details print in two compact columns;
+  - the summary's completeness chips stay on one line.
+- **Decision:** The report controls its own A4 margins and footer, "Hasr · SAMA Circular 482021280 · <scan date>" and "Page N of M", using `@page` margin boxes. The README tells readers to turn off the browser's "Headers and footers", which would otherwise print the local file path and print time.
+- **Verification:** Both PDFs were printed with headless Chrome (`--print-to-pdf --no-pdf-header-footer`) from the lab report and every page was checked: summary 2 pages, full 12 pages, no split row, no orphaned title, no large blank gap, and all status badges the same height.
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.

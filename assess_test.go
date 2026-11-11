@@ -184,7 +184,7 @@ func TestHTMLEscapesAndIsSelfContained(t *testing.T) {
 	mapping := []MappingEntry{{Target: "lab:1", System: `<script>alert("x")</script>`, Owner: `"><img src=x onerror=alert(1)>`, ThirdParty: "in-house"}}
 	r := buildReport(scan, Inputs{MappingFile: "m.csv", ScanFile: "s.json", PolicyFile: "p.json"}, mapping, ndmoPolicy(), time.Unix(0, 0))
 	var b bytes.Buffer
-	if err := writeHTML(&b, r); err != nil {
+	if err := writeHTML(&b, r, scan.Targets); err != nil {
 		t.Fatal(err)
 	}
 	page := b.String()

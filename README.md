@@ -6,10 +6,9 @@ the cloud provider's own records, and reports it against
 «حصر» (*hasr*), the word Clause 2 of the circular uses for inventorying
 cryptographic assets.
 
-![Hasr report: the header with its overview cards, and the Clause 2a priority table](docs/report.png)
+![Hasr report: the first screen, with the headline, status cards and the migration priority table](docs/report.png)
 
-*Two parts of one report, from the test lab with the sample mapping: the header
-with its overview cards, and the Clause 2a priority table.*
+*The first screen of one report, from the test lab with the sample mapping.*
 
 ## Why
 
@@ -107,6 +106,13 @@ A note and one detail block per target follow the table. Without `-table`,
 server behind them, so the report shows the "not assessed" section and
 `hasr scan` exits with status 1 (expected). `testlab/start.sh` uses the `openssl` on your
 `PATH`; set `OPENSSL=/path/to/openssl` to use another.
+
+**Printing.** The report has two print buttons. "Print summary" prints the first
+screen, completeness and clause coverage (also what Ctrl/Cmd+P prints, and
+the only print without JavaScript). "Print full report" opens every section first.
+The report sets its own A4 margins and footer (scan date, page N of M), so turn
+off "Headers and footers" in the browser's print dialog; otherwise the browser
+adds the file path and print time.
 
 ## Cloud discovery (AWS)
 
