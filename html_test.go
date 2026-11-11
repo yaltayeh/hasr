@@ -50,7 +50,7 @@ func TestHTMLStructure(t *testing.T) {
 		`<th>Target</th><th>System</th><th>Status`,
 		`<tr class="rowdetail">`, `id="sama"`, `id="sama-clause-2"`, `href="#sama-clause-2"`, `id="glossary"`,
 		`id="print-summary"`, `id="print-full"`, `Clause coverage`,
-		`html:not(.print-full) #appendix{display:none}`,
+		`html:not(.print-full) main.wrap{display:none}`, `class="sumpage"`,
 		`id="agility"`, `Agility (indicative)`, `id="plans"`, `id="committee"`,
 		`Mitigated</span><span class="note">for PQ-capable clients</span>`,
 		`@bottom-left{content:"Hasr · SAMA Circular 482021280 · `, `counter(pages)`,

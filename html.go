@@ -168,6 +168,8 @@ type htmlView struct {
 	Certs                           []certRow
 	CertRefs, CertSoon, CertExpired int
 	CertEndpoints                   int
+	// Sum is the one-page committee summary, printed by default.
+	Sum summaryView
 }
 
 // coverageRow is one clause in the "Clause coverage" table.
@@ -178,6 +180,8 @@ type coverageRow struct {
 	Left, LeftClass string
 	// Status is the clause's state in this scan, with its colour class and a one-line note.
 	Status, StatusClass, Note string
+	// SumStatus and SumWhen are the summary page's short forms.
+	SumStatus, SumWhen string
 }
 
 // daysLeft counts whole days from the scan date to a due date (both in UTC).
@@ -395,6 +399,7 @@ func writeHTML(w io.Writer, r RiskReport, targets []Target) error {
 		}
 		v.Probes = append(v.Probes, g)
 	}
+	v.Sum = buildSummary(r, v)
 	return reportTemplate.Execute(w, v)
 }
 
@@ -566,6 +571,7 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 	"join":               strings.Join,
 	"hasPrefix":          strings.HasPrefix,
 	"inc":                func(i int) int { return i + 1 },
+	"lower":              func(s string) string { return strings.ToLower(s[:1]) + s[1:] },
 	"vendor":             isVendor,
 	"yknown": func(k string) string {
 		return map[string]string{"per_entry": "per entry", "default": "default", "no": "no"}[k]
@@ -632,7 +638,7 @@ const reportHTML = reportIcons + `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
 <title>Hasr · SAMA Circular 482021280 · {{day .Inputs.ScanGeneratedAt}}</title>
 <style>{{.CSS}}</style>
 <style>@page{@bottom-left{content:"Hasr · SAMA Circular 482021280 · {{day .Inputs.ScanGeneratedAt}}";font:8.5pt -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#575073}}</style>
@@ -980,6 +986,23 @@ hasr cloud {{.Provider}} --from RAW_DIR &gt; {{.File}}
   </details>
 </section>
 </main>
+{{with .Sum}}
+<section class="sumpage" aria-label="Summary for the committees">
+  <div class="sp-top"><span class="sp-brand"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2.5"/></svg>Hasr · Summary for the information security and risk committees</span><span class="sp-dim">SAMA Circular No. 482021280 · scan {{.ScanDay}}</span></div>
+  <h1 class="sp-h1">{{.Headline}}</h1>
+  <p class="sp-scope"><strong>Scope: TLS endpoints only.</strong> Not covered: SSH, VPN, HSMs and key stores, application code, databases. Figures below are not a measure of all cryptographic assets.</p>
+  <h2 class="sp-h">Where each clause stands</h2>
+  <div class="sp-grid4">{{range .Clauses}}<div class="sp-box{{if eq .StatusClass "unk"}} b-unk{{end}}"><span class="sp-ct"><span>Clause {{.N}}</span><span lang="ar" dir="rtl" class="ar">{{.Ar}}</span></span><span class="sp-dim">{{.Short}}</span><span class="tag c-{{.StatusClass}}">{{.SumStatus}}</span><span class="sp-small">{{if .DueDate}}Due {{lower .Due}} · <strong>{{.Left}}</strong>{{else}}{{.SumWhen}}{{end}}</span></div>{{end}}</div>
+  <div class="sp-cards">{{range .Cards}}<div class="sp-box{{if eq .Class "risk"}} b-risk{{end}}{{if eq .Class "comp"}} sp-comp{{end}}"><span class="sp-num t-{{.Class}}">{{.N}}</span>{{if eq .Class "comp"}}<span class="sp-lab">{{.Label}}</span>{{else}}<span class="tag c-{{.Class}}">{{.Label}}</span>{{end}}<span class="sp-small">{{.Note}}</span></div>{{end}}</div>
+  {{if .Rows}}<h2 class="sp-h">Highest-risk assets</h2>
+  <table class="sp-t"><thead><tr><th>System</th><th>Sensitivity</th><th>Status</th><th>Exposure past {{.ZYear}}</th><th>Third party · constraint</th><th>What to do</th></tr></thead>
+  <tbody>{{range .Rows}}<tr{{if eq .Class "risk"}} class="sp-risk"{{end}}><td><strong>{{.System}}</strong>{{with .Service}}<span class="sp-n">{{.}}</span>{{end}}</td><td>{{.Sensitivity}}</td><td><span class="tag c-{{.Class}}">{{.Status}}</span>{{with .StatusNote}}<span class="sp-n">{{.}}</span>{{end}}</td><td><strong>{{.Exposure}}</strong>{{with .ExposureNote}}<span class="sp-n">{{.}}</span>{{end}}</td><td>{{.Third}}{{with .Constraint}}<span class="sp-n">{{.}}</span>{{end}}</td><td>{{.Do}}</td></tr>{{end}}</tbody></table>
+  <p class="sp-foot">Exposure: how long data would still need to stay secret after the {{.ZYear}} deadline, counting migration time (Mosca: X + Y − Z).{{with .More}} {{.}}{{end}}{{with .CertNote}} Also noted: {{.}}{{end}}</p>{{end}}
+  <h2 class="sp-h">For the committee: challenges and recommendations</h2>
+  <ol class="sp-asks">{{range $i, $k := .Items}}<li><strong class="sp-dim">{{inc $i}}</strong><span class="sp-askt"><strong>{{$k.Ask}}</strong><span class="sp-n">{{$k.Why}}{{if ne $k.Owner "—"}} Owner: {{$k.Owner}}.{{end}}</span></span><span class="tag c-{{if eq $k.Due "Decision"}}neutral{{else}}unk{{end}}">{{$k.Due}}</span></li>{{end}}</ol>
+  <p class="sp-ev">Evidence: the full report and the scan JSON. Rebuilt by the same two commands (full report, Clause 4).</p>
+</section>
+{{end}}
 <script>/* Optional. Without it the page works and prints the summary. */
 (function(){var h=document.documentElement;h.className+=" js";
 function opened(t){for(var n=t;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true}}
@@ -995,21 +1018,11 @@ addEventListener("afterprint",back);window.print()};})();</script>
 `
 
 const reportCSS = `
-:root{color-scheme:light dark;
+:root{color-scheme:light;
 --bg:#F6F4FB;--surface:#FFFFFF;--raised:#F0ECF9;--ink:#170F2E;--ink-soft:#2C2349;--muted:#463D63;--dim:#575073;--faint:#625A82;--accent:#5537BD;--on-accent:#FFFFFF;
 --line:rgba(23,15,46,.13);--line-soft:rgba(23,15,46,.08);--code:#F0ECF9;--tip-bg:#170F2E;--tip-ink:#F2EDFF;
 --risk:#B42318;--risk-bg:#FDECEA;--risk-line:#F1B1A9;--unk:#8A5300;--unk-bg:#FFF3DC;--unk-line:#E8BE74;
 --ok:#1E6B45;--ok-bg:#E6F4EC;--ok-line:#9BCFB1;--na:#4E4A5E;--na-bg:#EDECF1;--na-line:#C6C2D2}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
---bg:#0C0627;--surface:#120838;--raised:#160B40;--ink:#F2EDFF;--ink-soft:#D6CCF2;--muted:#BDB0DE;--dim:#A396C9;--faint:#9486BE;--accent:#BFA3FF;--on-accent:#12063A;
---line:rgba(242,237,255,.11);--line-soft:rgba(242,237,255,.065);--code:#0F0830;--tip-bg:#F2EDFF;--tip-ink:#170F2E;
---risk:#FF9F8E;--risk-bg:rgba(255,159,142,.12);--risk-line:rgba(255,159,142,.45);--unk:#F2C46D;--unk-bg:rgba(242,196,109,.11);--unk-line:rgba(242,196,109,.45);
---ok:#86D9AE;--ok-bg:rgba(134,217,174,.11);--ok-line:rgba(134,217,174,.42);--na:#C4BEDA;--na-bg:rgba(242,237,255,.07);--na-line:rgba(242,237,255,.24)}}
-:root[data-theme="dark"]{
---bg:#0C0627;--surface:#120838;--raised:#160B40;--ink:#F2EDFF;--ink-soft:#D6CCF2;--muted:#BDB0DE;--dim:#A396C9;--faint:#9486BE;--accent:#BFA3FF;--on-accent:#12063A;
---line:rgba(242,237,255,.11);--line-soft:rgba(242,237,255,.065);--code:#0F0830;--tip-bg:#F2EDFF;--tip-ink:#170F2E;
---risk:#FF9F8E;--risk-bg:rgba(255,159,142,.12);--risk-line:rgba(255,159,142,.45);--unk:#F2C46D;--unk-bg:rgba(242,196,109,.11);--unk-line:rgba(242,196,109,.45);
---ok:#86D9AE;--ok-bg:rgba(134,217,174,.11);--ok-line:rgba(134,217,174,.42);--na:#C4BEDA;--na-bg:rgba(242,237,255,.07);--na-line:rgba(242,237,255,.24)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-underline-offset:2px}a:hover{color:var(--ink)}
@@ -1157,10 +1170,37 @@ th.area{width:120px}th.offer{width:200px}
 @media (max-width:1000px){.cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:640px){.wrap{padding:20px 16px 48px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.two,.facts{grid-template-columns:1fr}
 .headline{font-size:20px}.circular,.gloss{grid-template-columns:1fr}.ev>summary .meta{display:none}.info .tip{max-width:240px}}
+/* one-page committee summary: the default print, hidden on screen */
+.sumpage{display:none;font-size:8.5pt;line-height:1.35;color:var(--ink)}
+.sumpage .tag{font-size:8pt;padding:0 6px;line-height:1.5}
+.sp-top{display:flex;justify-content:space-between;align-items:center;gap:10pt;padding-bottom:5pt;border-bottom:1px solid var(--line);font-size:8.5pt}.sp-top>span:last-child{white-space:nowrap}
+.sp-brand{display:flex;align-items:center;gap:6px;font-weight:700}.sp-brand .ic{color:var(--accent)}
+.sp-dim{color:var(--dim)}.sp-small{font-size:8pt;color:var(--dim)}.sp-small strong{color:var(--ink)}
+.sp-h1{font-size:13.5pt;line-height:1.3;letter-spacing:-.01em;margin:8pt 0 5pt}
+.sp-scope{margin:0;padding:4pt 7pt;background:var(--raised);border-radius:6px;font-size:8.5pt;color:var(--ink-soft)}
+.sp-h{font-size:9.5pt;margin:8pt 0 3pt}
+.sp-grid4,.sp-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6pt}
+.sp-cards{margin-top:7pt}
+.sp-box{border:1px solid var(--line);border-radius:6px;padding:4pt 6pt;display:flex;flex-direction:column;gap:2pt;align-items:flex-start;font-size:8pt}
+.sp-box.b-unk{border-color:var(--unk-line)}.sp-box.b-risk{border-color:var(--risk-line)}.sp-comp{background:var(--raised)}
+.sp-ct{display:flex;justify-content:space-between;width:100%;font-weight:700}
+.sp-num{font-size:16pt;line-height:1.05;font-weight:700}.t-comp{color:var(--ink)}.t-neutral{color:var(--ink)}
+.sp-lab{font-size:8.5pt;font-weight:600}
+.sp-t{width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed}.sp-t th:nth-child(1){width:17%}.sp-t th:nth-child(2){width:10%}.sp-t th:nth-child(3){width:12%}.sp-t th:nth-child(4){width:14%}.sp-t th:nth-child(5){width:20%}
+.sp-t th{text-align:left;font-size:7.5pt;font-weight:600;color:var(--dim);padding:3pt 5pt;border-bottom:1px solid var(--line)}
+.sp-t td{padding:3pt 5pt;border-bottom:1px solid var(--line-soft);vertical-align:top}
+.sp-t tr{break-inside:avoid}.sp-risk td{background:var(--risk-bg)}
+.sp-n{display:block;font-size:7.5pt;color:var(--dim);margin-top:1pt;font-weight:400}
+.sp-foot{margin:4pt 0 0;font-size:7.5pt;color:var(--dim)}
+.sp-asks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4pt}
+.sp-asks li{display:flex;gap:8pt;align-items:baseline;border:1px solid var(--line);border-radius:6px;padding:3pt 7pt;break-inside:avoid}
+.sp-askt{flex:1}
+.sp-ev{margin:6pt 0 0;padding-top:4pt;border-top:1px solid var(--line);font-size:7.5pt;color:var(--dim)}
+.sumpage .tag,.sp-risk td,.sp-scope,.sp-comp{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @page{size:A4;margin:14mm 13mm 18mm;@top-left{content:none}@top-center{content:none}@top-right{content:none}@bottom-center{content:none}
 @bottom-right{content:"Page " counter(page) " of " counter(pages);font:8.5pt -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#575073}}
 @media print{
-:root,:root:not([data-theme="light"]),:root[data-theme="dark"]{color-scheme:light;
+:root{
 --bg:#FFFFFF;--surface:#FFFFFF;--raised:#F6F4FB;--ink:#170F2E;--ink-soft:#2C2349;--muted:#463D63;--dim:#575073;--faint:#625A82;--accent:#5537BD;--on-accent:#FFFFFF;
 --line:rgba(23,15,46,.18);--line-soft:rgba(23,15,46,.1);--code:#F6F4FB;
 --risk:#B42318;--risk-bg:#FDECEA;--risk-line:#F1B1A9;--unk:#8A5300;--unk-bg:#FFF3DC;--unk-line:#E8BE74;
@@ -1201,7 +1241,8 @@ h2,h3,h4,.sechead,.ev>summary,.sub,.hint,.clausetext h3{break-after:avoid}
 .chip,.tag,.seg,.fill,.track,.row-risk td,.c-clause{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 a{color:inherit;text-decoration:none}
 /* summary print (the default, and without script): first screen, completeness, clause coverage */
-html:not(.print-full) .rowdetail,html:not(.print-full) .lists,html:not(.print-full) #appendix{display:none}
+html:not(.print-full) main.wrap{display:none}
+html:not(.print-full) .sumpage{display:block}
 /* full print: everything opened by the script */
 #probes .tbl{table-layout:fixed}#probes th.offer{width:22%}#probes th:nth-child(2){width:11%}#probes th:nth-child(3){width:34%}
 #probes td.mono{word-break:break-all}

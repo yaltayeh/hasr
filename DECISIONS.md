@@ -519,7 +519,7 @@ Each entry: date, decision, reason. Only decided items are built.
   - the "(unofficial translation)" label beside clause headings, which was dropped (each quote keeps "Unofficial translation by the author");
   - a link from Clause 2 back to the priority table, and an "Evidence" eyebrow on the appendix;
   - the typo "the scan show today", which now reads "the scan shows today".
-- **Decision:** It is still one self-contained offline file: inline CSS, inline SVG icons, system fonts, no images or web fonts. Light and dark follow `prefers-color-scheme`.
+- **Decision:** It is still one self-contained offline file: inline CSS, inline SVG icons, system fonts, no images or web fonts. Light and dark follow `prefers-color-scheme`. *(Superseded 2026-11-11: light only.)*
 - **Decision:** Printing always uses the light palette on white on A4, with each clause on a new page, table headers repeated on each page, and a page footer. Every evidence section prints open: the CSS `::details-content` rule does this where the browser supports it, and a four-line `beforeprint` script opens the sections elsewhere. It is the page's only script, and the page reads the same without it.
 - **Decision:** `docs/report.png` now shows the top of one lab report in a single piece: the header, the cards, the clause tiles and the priority table. It replaces the two joined parts.
 - **Reason:** In the first five seconds, a bank's information-security committee and the judges see what is at risk, how many assets there are, how complete the inventory is, and which clause each part answers.
@@ -636,6 +636,20 @@ The author passed on an expert review of the report design (14 changes). They ar
 - **Decision:** Clause 2's "What Hasr provides" names the procedure evidence first: the inventory is automated and repeatable, and the same two commands rebuild the report. The Provides and Institution lists of Clauses 2–4 mention the indicative agility, the initiatives and the committee items.
 - **Decision:** In Probes, a target whose every probe ended in error is one line ("unreachable · all 7 probes failed at TCP: …") instead of seven error rows; the scan JSON keeps every probe.
 - **Decision:** The glossary no longer repeats the clause texts (they are in the SAMA Circular section), and the clause ⓘ tooltips are removed with them. It gains Agility (indicative), Initiative and Certificate expiry.
+
+## 2026-11-11 — Expert review, group 4: one-page committee summary; light only
+
+- **Decision:** The summary print (Ctrl/Cmd+P, "Print summary", and the only print without JavaScript) is now a dedicated one-page A4 page for the information-security and risk committees, following the English summary artboard of the updated design. On screen it is hidden; the full print hides it. It holds:
+  - a header line and a headline: "2 of 3 assessed TLS endpoints are at risk from quantum computing. 2 more could not be assessed. Clause 2 (inventory) is due in 50 days." (days counted from the scan date);
+  - the scope line;
+  - "Where each clause stands": one tile per clause with the Arabic numbering, a short status (Clause 2 "Partial: TLS only, 3 of 5"; Clause 3 "5 initiatives proposed"; Clause 4 "3 items to escalate") and the days left;
+  - status cards: At risk (with how many wait on a vendor), Mitigated, Not assessed, Completeness; Unknown and Not at risk appear only when not zero. No "Not tested" card: it counted scanner limits, not assets, and read as clashing with "3 of 5";
+  - "Highest-risk assets": up to six assets in priority order with sensitivity, status, "Exposure past 2030" in plain words ("at least 5.9 years", "about 6.9 years, assumes 1 year to migrate", "Older clients only"), third party and constraint, and a plain-language "What to do". No "+N more"; when assets are left out, a sentence says the full report lists them all. A footnote explains exposure (X + Y − Z) and notes certificates expiring within 30 days as operational, not quantum;
+  - the committee items from Clause 4, each with its owner and due date;
+  - the evidence line. The page footer stays the report's own "Page N of M".
+- **Decision:** The previous summary print (first screen, completeness and clause coverage, two pages) is replaced.
+- **Decision:** Light theme only, as the author decided: the dark-theme colour rules and `prefers-color-scheme` handling are removed, and the page declares `color-scheme: light`.
+- **Reason:** A committee reads one page; the expert review found the two-page summary mixed scanner limits with asset counts and left the decisions to the reader.
 
 ## Corrections
 

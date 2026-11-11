@@ -140,3 +140,36 @@ func TestHTMLGroup3(t *testing.T) {
 		t.Error("glossary repeats clause texts")
 	}
 }
+
+// The one-page summary: headline with the Clause 2 deadline, no "Not tested",
+// no "+N more", plain-language exposure.
+func TestSummaryPage(t *testing.T) {
+	r, scan := labReport(t)
+	var b bytes.Buffer
+	if err := writeHTML(&b, r, scan.Targets); err != nil {
+		t.Fatal(err)
+	}
+	page := b.String()
+	sum := page[strings.Index(page, `<section class="sumpage"`):]
+	sum = sum[:strings.Index(sum, `</section>`)]
+	for _, want := range []string{
+		`2 of 3 assessed TLS endpoints are at risk from quantum computing. 1 more could not be assessed. Clause 2 (inventory) is due in 52 days.`,
+		`Partial: TLS only, 3 of 4`, `<strong>52 days</strong>`, `5 initiatives proposed`, `3 items to escalate`,
+		`1 of them waits on its vendor`, `<strong>at least 1.0 years</strong>`, `assumes 1 year to migrate`, `Older clients only`,
+		`Get a dated plan from the vendor; switch off old protocols (TLS 1.0, 1.1).`,
+		`Restore reachability of Lab D, then rescan.`,
+		`2 certificates expire within 30 days of the scan, the first on 2026-12-08 (operational, not quantum).`,
+	} {
+		if !strings.Contains(sum, want) {
+			t.Errorf("summary lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"Not tested", "more</span>", "+1 more", "dark"} {
+		if strings.Contains(sum, bad) {
+			t.Errorf("summary contains %q", bad)
+		}
+	}
+	if strings.Contains(page, "prefers-color-scheme") || strings.Contains(page, `data-theme="dark"`) {
+		t.Error("the report is light only")
+	}
+}
