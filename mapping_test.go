@@ -39,7 +39,7 @@ func TestParseMapping(t *testing.T) {
 		{"unknown column", strings.Replace(header, "constraints", "notes", 1), `unknown column "notes"`},
 		{"missing column", strings.Replace(header, ",constraints", "", 1), `missing column "constraints"`},
 		{"no port", header + "10.0.0.1,a,b,c,Secret,,,in-house,\n", "must be host:port"},
-		{"bad port", header + "10.0.0.1:99999,a,b,c,Secret,,,in-house,\n", "invalid port"},
+		{"bad port", header + "10.0.0.1:99999,a,b,c,Secret,,,in-house,\n", "outside 1-65535"},
 		{"duplicate", header + "10.0.0.1:443,a,,,,,,,\n10.0.0.1:443,b,,,,,,,\n", "already on line 2"},
 		{"unknown label", header + "10.0.0.1:443,a,,,Confidential,,,,\n", `"Confidential" is not one of`},
 		{"negative years", header + "10.0.0.1:443,a,,,,-1,,,\n", "non-negative"},

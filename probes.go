@@ -306,7 +306,8 @@ func handshake(cfg *tls.Config, target string, timeout time.Duration) (tls.Conne
 	// sends it no data. Certificates are verified separately afterwards.
 	cfg.InsecureSkipVerify = true
 	if cfg.ServerName == "" {
-		if host, _, err := net.SplitHostPort(target); err == nil && net.ParseIP(host) == nil {
+		// SNI is the host alone, never host:port, and none for an IP address.
+		if host, _, err := net.SplitHostPort(target); err == nil && !isIP(host) {
 			cfg.ServerName = host
 		}
 	}

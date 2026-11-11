@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"time"
 )
 
@@ -69,7 +68,7 @@ func describeCertificate(chain []*x509.Certificate, host string, now time.Time) 
 		v.Validity = "valid"
 	}
 
-	if net.ParseIP(host) != nil {
+	if isIP(host) {
 		v.HostnameMatch = "not_checked"
 	} else if err := leaf.VerifyHostname(host); err != nil {
 		v.HostnameMatch = "mismatch"

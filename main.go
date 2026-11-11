@@ -112,7 +112,12 @@ func runScan(args []string) int {
 			addTarget(e.Target)
 		}
 	}
-	for _, t := range fs.Args() {
+	for _, a := range fs.Args() {
+		t, err := canonicalTarget(a, true)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "invalid target:", err)
+			return 2
+		}
 		addTarget(t)
 	}
 	if len(targets) == 0 {
@@ -164,7 +169,7 @@ func runScan(args []string) int {
 // canonicalName resolves the host's CNAME chain (an ordinary DNS lookup) and
 // returns its end, or "" for an IP address, a host without a CNAME, or a failed lookup.
 func canonicalName(host string, timeout time.Duration) string {
-	if net.ParseIP(host) != nil {
+	if isIP(host) {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

@@ -133,6 +133,10 @@ runs (about $1.63 in eu-north-1).
 
 ## Mapping and policy files
 
+- **Targets:** written as `host:port` with a numeric port. Hosts are
+  compared without case or a trailing dot, so `BANK.SA.:443` and `bank.sa:443`
+  are the same target. IPv6 goes in brackets (`[2001:db8::1]:443`). On the
+  command line, a target without a port means `:443`.
 - **Mapping CSV:** one row per `host:port`, with the columns `target, system,
   service, owner, data_classification, data_shelf_life_years, migration_years,
   third_party, constraints`. `data_classification` must be one of the policy's

@@ -133,5 +133,12 @@ func readScan(path string) (Report, error) {
 	if r.SchemaVersion != schemaVersion && r.SchemaVersion != "0.3" {
 		return Report{}, fmt.Errorf("%s: scan schema %q, this hasr reads %q; re-run hasr scan", path, r.SchemaVersion, schemaVersion)
 	}
+	// Scans written before targets were canonicalised may differ in case or a
+	// trailing dot; a target that is not valid host:port is left as it is.
+	for i := range r.Targets {
+		if c, err := canonicalTarget(r.Targets[i].Target, false); err == nil {
+			r.Targets[i].Target = c
+		}
+	}
 	return r, nil
 }

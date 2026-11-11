@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -98,7 +97,7 @@ func parseMapping(r io.Reader, labels []string) ([]MappingEntry, error) {
 			ThirdParty:         get("third_party"),
 			Constraints:        get("constraints"),
 		}
-		if err := checkTarget(e.Target); err != nil {
+		if e.Target, err = canonicalTarget(e.Target, false); err != nil {
 			return nil, fmt.Errorf("line %d: %v", line, err)
 		}
 		if prev, dup := seen[e.Target]; dup {
@@ -127,21 +126,6 @@ func parseMapping(r io.Reader, labels []string) ([]MappingEntry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
-}
-
-// checkTarget requires host:port with a numeric port in 1-65535.
-func checkTarget(t string) error {
-	host, port, err := net.SplitHostPort(t)
-	if err != nil {
-		return fmt.Errorf("target %q must be host:port", t)
-	}
-	if host == "" {
-		return fmt.Errorf("target %q has no host", t)
-	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return fmt.Errorf("target %q has an invalid port", t)
-	}
-	return nil
 }
 
 // parseYears reads an optional, non-negative number of years. Empty means not given.

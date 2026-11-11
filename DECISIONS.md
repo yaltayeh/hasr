@@ -482,6 +482,20 @@ Each entry: date, decision, reason. Only decided items are built.
   - send a fatal `protocol_version` alert.
   A unit test checks that `closed` counts as conclusive when another probe was accepted.
 
+## 2026-11-10 — Target form
+
+### One canonical form for every target
+
+- **Decision:** Every target is normalised to one form before anything else: command-line targets, `--targets`, the mapping CSV, and the targets of a scan JSON when the report reads it. Matching stays on exact `host:port`, now of the canonical form. The form is:
+  - the port is decimal digits only, 1–65535, written without leading zeros. An empty port (`host:`) and service names (`host:https`) are rejected with an error;
+  - the host is lowercased with one trailing dot removed;
+  - IP addresses are written in their standard form, with IPv6 in brackets (`[2001:db8::1]:443`).
+- **Decision:** A target without a port defaults to `:443` on the command line only. The mapping CSV still needs an explicit port.
+- **Decision:** An invalid command-line target stops `hasr scan` with exit status 2 before anything is sent. Before this, it was scanned as an invalid target and recorded with an error. Two CSV rows that differ only in form are duplicates.
+- **Decision:** URLs (`https://…`) and hosts with characters other than letters, digits, `-`, `.` and `_` are rejected. Internationalised names must be given in their `xn--` form.
+- **Reason:** `net.SplitHostPort` does not validate the port, and the CSV is matched to scan targets on exact `host:port`. Without one form, `bank.sa:443` on the command line and `BANK.SA.:443` in the CSV would not match.
+- **Unchanged:** The probe dials the full `host:port`. SNI carries the host alone, and none is sent for an IP address (including IPv6 with a zone).
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.
