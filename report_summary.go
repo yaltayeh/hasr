@@ -37,7 +37,7 @@ const summaryRows = 6
 
 func buildSummary(r RiskReport, v htmlView) summaryView {
 	c := r.Completeness
-	sv := summaryView{ScanDay: r.Inputs.ScanGeneratedAt.UTC().Format("2006-01-02"), Clauses: v.Coverage, Items: r.CommitteeItems, ZYear: "2030"}
+	sv := summaryView{ScanDay: r.Inputs.ScanGeneratedAt.UTC().Format("2006-01-02"), Clauses: append([]coverageRow(nil), v.Coverage...), Items: r.CommitteeItems, ZYear: "2030"}
 	if len(r.Policy.Z.Date) >= 4 {
 		sv.ZYear = r.Policy.Z.Date[:4]
 	}

@@ -169,6 +169,10 @@ func TestSummaryPage(t *testing.T) {
 			t.Errorf("summary contains %q", bad)
 		}
 	}
+	// The summary's short forms never leak into the full report's Clause coverage.
+	if !strings.Contains(page, `<span class="tag c-unk">52 days left</span>`) {
+		t.Error("Clause coverage lost \"days left\"")
+	}
 	if strings.Contains(page, "prefers-color-scheme") || strings.Contains(page, `data-theme="dark"`) {
 		t.Error("the report is light only")
 	}

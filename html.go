@@ -1216,7 +1216,7 @@ body{font-size:10pt;background:#fff}
 .box{overflow:visible}
 .tbl thead{display:table-header-group}
 .tbl thead{display:table-header-group}
-.tbl tr,.priority tbody.asset,.gi,.limits li,.clausetext .quote,.facts dl>*,.implies,.scope,#completeness>.hint{break-inside:avoid}
+.tbl tr,.priority tbody.asset,.gi,.limits li,.clausetext .quote,.facts dl>*,.implies,.scope,#completeness>.hint,.evbody>.hint{break-inside:avoid}
 p,li{orphans:2;widows:2}
 h2,h3,h4,.sechead,.ev>summary,.sub,.hint,.clausetext h3{break-after:avoid}
 /* flex and grid containers do not fragment cleanly: plain block layout in print */

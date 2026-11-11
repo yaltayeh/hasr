@@ -649,6 +649,7 @@ The author passed on an expert review of the report design (14 changes). They ar
   - the evidence line. The page footer stays the report's own "Page N of M".
 - **Decision:** The previous summary print (first screen, completeness and clause coverage, two pages) is replaced.
 - **Decision:** Light theme only, as the author decided: the dark-theme colour rules and `prefers-color-scheme` handling are removed, and the page declares `color-scheme: light`.
+- **Correction (same day):** the summary's short clause forms were first written into the rows the full report also uses, so the full report's Clause coverage showed "50 days" instead of "50 days left". The summary now works on its own copy, and a test checks the full report keeps "days left". In print, an evidence section's note no longer splits across pages.
 - **Reason:** A committee reads one page; the expert review found the two-page summary mixed scanner limits with asset counts and left the decisions to the reader.
 
 ## Corrections
