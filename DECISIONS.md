@@ -595,6 +595,17 @@ The author passed on an expert review of the report design (14 changes). They ar
 
 - **Decision:** In print, the scope line, the defaults note and the completeness sentence never split, and the margin's X, Y, Z line stays on one line.
 
+## 2026-11-11 — Expert review, group 2: clause coverage
+
+- **Decision:** The Clause coverage table gains a "Status in this scan" column, a chip with a one-line note generated from the report:
+  - Clause 1: "Input provided" (technical input for N assessed endpoints; the assessment is the institution's), or "No input yet" when nothing was assessed;
+  - Clause 2: always "Partial", because the scope is TLS only; the note gives the completeness figure and what is missing (not assessed, needs owner input, mapped but not scanned, found in the cloud only, values missing);
+  - Clause 3: "Actions proposed", with the number of recommended actions and assets;
+  - Clause 4: "Evidence repeatable"; comparison with the previous scan is not built yet.
+- **Decision:** The Due cell shows the days left, counted from the scan date to the last day of the deadline (Q4 2026 = 2026-12-31, Q1 2027 = 2027-03-31): amber at 90 days or fewer, red when overdue ("N days overdue"), neutral otherwise.
+- **Decision:** The circular's own numbering is shown in Arabic beside each clause badge (Clause 1 = أولًا, 2 = ثانيًا, 3 = ثالثًا, 4 = رابعًا), in the coverage table and in the SAMA Circular section, whose note now gives the mapping.
+- **Reason:** A committee reads the circular in Arabic and tracks deadlines; "Clause 2" alone did not match the text they hold, and a due date without the days left hid how close Clause 2 is.
+
 ## Corrections
 
 - **2026-11-08:** The step 1 summary said Go's client "won't go below TLS 1.2". That was wrong. TLS 1.2 is only Go's *default* minimum; setting `MinVersion`/`MaxVersion` explicitly enables TLS 1.0/1.1. Fixed by giving the TLS 1.0 and TLS 1.1 probes explicit versions. Verified on go1.27.3 against test server (c): TLS 1.1 and TLS 1.0 handshakes both succeed.

@@ -120,3 +120,36 @@ func TestDefaultsNote(t *testing.T) {
 		t.Errorf("no level above Z, note = %q", got)
 	}
 }
+
+// Days left count from the scan date; Clause 2 is always Partial (TLS only).
+func TestCoverage(t *testing.T) {
+	scanDay := time.Date(2026, 11, 9, 20, 9, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		due  string
+		want int
+	}{{"2026-12-31", 52}, {"2027-03-31", 142}, {"2026-11-09", 0}, {"2026-11-01", -8}} {
+		if n, ok := daysLeft(scanDay, tc.due); !ok || n != tc.want {
+			t.Errorf("daysLeft(%s) = %d, %v; want %d", tc.due, n, ok, tc.want)
+		}
+	}
+	r := RiskReport{Inputs: Inputs{ScanGeneratedAt: scanDay}, Completeness: Completeness{Mapped: 5, Assessed: 3, NotAssessed: 2}}
+	rows := coverage(r, htmlView{AskVendor: []Asset{{}}})
+	got := []string{}
+	for _, c := range rows {
+		got = append(got, c.Ar+" "+c.Left+" "+c.Status+": "+c.Note)
+	}
+	want := []string{
+		"أولًا 142 days left Input provided: Technical input for 3 assessed endpoints. The assessment itself is the institution's.",
+		"ثانيًا 52 days left Partial: TLS only; 3 of 5 TLS targets assessed; 2 not assessed; 1 value missing.",
+		"ثالثًا  No actions: No finding needs an action in this scan.",
+		"رابعًا  Evidence repeatable: The same two commands rebuild this report. Comparison with the previous scan is not built yet.",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %q\nwant     %q", i+1, got[i], want[i])
+		}
+	}
+	if rows[1].LeftClass != "unk" || rows[0].LeftClass != "neutral" {
+		t.Errorf("left classes = %s, %s", rows[0].LeftClass, rows[1].LeftClass)
+	}
+}

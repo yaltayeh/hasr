@@ -14,9 +14,12 @@ import (
 // official text is the Arabic circular. Title, Provides and Institution are
 // Hasr's own wording. PROVISIONAL wording, for the author's review.
 type clauseInfo struct {
-	N           int
-	Title       string
-	Due         string
+	N     int
+	Ar    string // the circular's own numbering, in Arabic
+	Title string
+	Due   string
+	// DueDate is the last day of the deadline (YYYY-MM-DD), or empty when the circular sets none.
+	DueDate     string
 	Text        string   // unofficial translation, verbatim
 	Items       []string // Clause 2's sub-items, verbatim
 	Provides    []string
@@ -25,7 +28,7 @@ type clauseInfo struct {
 
 var clauses = []clauseInfo{
 	{
-		N: 1, Title: "Enterprise quantum-risk assessment", Due: "End of Q1 2027",
+		N: 1, Ar: "أولًا", Title: "Enterprise quantum-risk assessment", Due: "End of Q1 2027", DueDate: "2027-03-31",
 		Text: "Conduct an enterprise-level assessment of the risks associated with quantum computing, in line with the institution's enterprise risk management procedures, and set action plans to address the risks resulting from the assessment, provided that they cover, without limitation, operational, legal, regulatory and strategic risks, including the workforce. Due: end of Q1 2027.",
 		Provides: []string{
 			"Technical input for the assessment: for each assessed TLS endpoint, whether its key exchange is quantum-vulnerable, whether it still accepts legacy protocols or weak cipher suites, and its Mosca margin (Clause 2).",
@@ -37,7 +40,7 @@ var clauses = []clauseInfo{
 		},
 	},
 	{
-		N: 2, Title: "Inventory and classification of cryptographic assets", Due: "End of Q4 2026",
+		N: 2, Ar: "ثانيًا", Title: "Inventory and classification of cryptographic assets", Due: "End of Q4 2026", DueDate: "2026-12-31",
 		Text: "Ensure the accuracy and comprehensiveness of the procedures for inventorying and classifying all of the institution's cryptographic assets by the end of Q4 2026, taking into account, at a minimum, the following:",
 		Items: []string{
 			"2a. Identifying the data, systems and services associated with the cryptographic assets, and classifying them by sensitivity and by priority for migration to quantum-resistant cryptographic solutions.",
@@ -56,7 +59,7 @@ var clauses = []clauseInfo{
 		},
 	},
 	{
-		N: 3, Title: "Plans to reach the required crypto-agility", Due: "No date in the circular",
+		N: 3, Ar: "ثالثًا", Title: "Plans to reach the required crypto-agility", Due: "No date in the circular",
 		Text: "Set plans and initiatives to reach the required level of crypto-agility, or suitable alternative solutions, for all priority assets, consistent with the outputs of Clause 2.",
 		Provides: []string{
 			"A recommended action for each finding, listed in priority order.",
@@ -67,7 +70,7 @@ var clauses = []clauseInfo{
 		},
 	},
 	{
-		N: 4, Title: "Standing monitoring by committees", Due: "No date in the circular",
+		N: 4, Ar: "رابعًا", Title: "Standing monitoring by committees", Due: "No date in the circular",
 		Text: "Include quantum computing risks as a standing item for periodic monitoring within the work of the information security supervisory committee and the board risk committee (where applicable), and escalate challenges and recommendations to the board or its equivalent.",
 		Provides: []string{
 			"Repeatable scans: the same two commands produce a new report at any time, and each scan's JSON is kept as evidence.",
@@ -155,6 +158,92 @@ type htmlView struct {
 	AskVendor, AskOwner []Asset
 	// DefaultsNote says what the default X and Z imply, or is empty.
 	DefaultsNote string
+	// Coverage is one row per clause: its status in this scan and the days left.
+	Coverage []coverageRow
+}
+
+// coverageRow is one clause in the "Clause coverage" table.
+type coverageRow struct {
+	clauseInfo
+	Short, Covers, Must string
+	// Left is "50 days left" or "3 days overdue", counted from the scan date; empty without a due date.
+	Left, LeftClass string
+	// Status is the clause's state in this scan, with its colour class and a one-line note.
+	Status, StatusClass, Note string
+}
+
+// daysLeft counts whole days from the scan date to a due date (both in UTC).
+func daysLeft(scan time.Time, due string) (int, bool) {
+	d, err := time.Parse("2006-01-02", due)
+	if err != nil || scan.IsZero() {
+		return 0, false
+	}
+	y, m, dd := scan.UTC().Date()
+	return int(d.Sub(time.Date(y, m, dd, 0, 0, 0, 0, time.UTC)).Hours() / 24), true
+}
+
+// coverage builds the clause coverage rows from the report (DECISIONS.md,
+// "Expert review, group 2").
+func coverage(r RiskReport, v htmlView) []coverageRow {
+	c := r.Completeness
+	actions, withActions := 0, 0
+	for _, a := range r.Assets {
+		actions += len(a.Findings)
+		if len(a.Findings) > 0 {
+			withActions++
+		}
+	}
+	var rows []coverageRow
+	for _, ci := range clauses {
+		cv := clauseCoverage[ci.N]
+		row := coverageRow{clauseInfo: ci, Short: cv.Short, Covers: cv.Covers, Must: cv.Must, StatusClass: "neutral"}
+		if n, ok := daysLeft(r.Inputs.ScanGeneratedAt, ci.DueDate); ok {
+			switch {
+			case n < 0:
+				row.Left, row.LeftClass = plural(-n, "day", "days")+" overdue", "risk"
+			case n <= 90:
+				row.Left, row.LeftClass = plural(n, "day", "days")+" left", "unk"
+			default:
+				row.Left, row.LeftClass = plural(n, "day", "days")+" left", "neutral"
+			}
+		}
+		switch ci.N {
+		case 1:
+			if c.Assessed == 0 {
+				row.Status, row.StatusClass, row.Note = "No input yet", "na", "No TLS endpoint was fully assessed."
+			} else {
+				row.Status, row.Note = "Input provided", "Technical input for "+plural(c.Assessed, "assessed endpoint", "assessed endpoints")+". The assessment itself is the institution's."
+			}
+		case 2:
+			parts := []string{"TLS only", strconv.Itoa(c.Assessed) + " of " + strconv.Itoa(c.Known()) + " TLS targets assessed"}
+			if c.NotAssessed > 0 {
+				parts = append(parts, plural(c.NotAssessed, "not assessed", "not assessed"))
+			}
+			if c.NeedsOwnerInput > 0 {
+				parts = append(parts, plural(c.NeedsOwnerInput, "needs owner input", "need owner input"))
+			}
+			if c.MappedNotScanned > 0 {
+				parts = append(parts, plural(c.MappedNotScanned, "mapped, not scanned", "mapped, not scanned"))
+			}
+			if c.CloudDiscovered > 0 {
+				parts = append(parts, plural(c.CloudDiscovered, "found in the cloud only", "found in the cloud only"))
+			}
+			if n := len(v.AskVendor) + len(v.AskOwner); n > 0 {
+				parts = append(parts, plural(n, "value missing", "values missing"))
+			}
+			row.Status, row.StatusClass, row.Note = "Partial", "unk", strings.Join(parts, "; ")+"."
+		case 3:
+			if actions == 0 {
+				row.Status, row.Note = "No actions", "No finding needs an action in this scan."
+			} else {
+				row.Status, row.Note = "Actions proposed", plural(actions, "recommended action", "recommended actions")+" across "+plural(withActions, "asset", "assets")+". Plans, budget and schedule are the institution's."
+			}
+		case 4:
+			row.Status, row.Note = "Evidence repeatable", "The same two commands rebuild this report. Comparison with the previous scan is not built yet."
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 type segment struct {
@@ -200,6 +289,7 @@ func writeHTML(w io.Writer, r RiskReport, targets []Target) error {
 		}
 	}
 	v.DefaultsNote = defaultsNote(r.Policy)
+	v.Coverage = coverage(r, v)
 	for _, list := range [][]Asset{r.Assets, r.NeedsOwnerInput, r.NotAssessed} {
 		for _, a := range list {
 			if a.Legacy == "yes" {
@@ -404,7 +494,6 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 		}
 		return template.CSS(side + ":50%;width:" + strconv.FormatFloat(w, 'f', 1, 64) + "%")
 	},
-	"cov":                func(n int) struct{ Short, Covers, Must string } { return clauseCoverage[n] },
 	"gloss":              glossaryText,
 	"plural":             plural,
 	"disagreementCauses": func() string { return disagreementCauses },
@@ -649,13 +738,15 @@ const reportHTML = reportIcons + `<!doctype html>
 
 <section id="coverage" class="block">
   <div class="sechead"><h2>Clause coverage</h2></div>
+  <p class="hint">Days left are counted from the scan date. Clause numbers are Hasr's; the circular's own numbering is shown in Arabic.</p>
   <div class="panel box"><table class="tbl coverage">
-    <thead><tr><th>Clause</th><th>Due</th><th>Hasr covers</th><th>Institution must</th></tr></thead>
-    <tbody>{{range .Clauses}}{{$v := cov .N}}<tr>
-      <td><a class="tag c-clause" href="#sama-clause-{{.N}}">Clause {{.N}}</a>{{template "info" (printf "clause%d" .N)}}<span class="note strong ink">{{$v.Short}}</span></td>
-      <td class="nowrap">{{.Due}}</td>
-      <td>{{$v.Covers}}</td>
-      <td class="muted">{{$v.Must}}</td>
+    <thead><tr><th>Clause</th><th>Due</th><th>Status in this scan</th><th>Hasr covers</th><th>Institution must</th></tr></thead>
+    <tbody>{{range .Coverage}}<tr>
+      <td><span class="cl"><a class="tag c-clause" href="#sama-clause-{{.N}}">Clause {{.N}}</a><span class="ar" lang="ar" dir="rtl">{{.Ar}}</span>{{template "info" (printf "clause%d" .N)}}</span><span class="note strong ink">{{.Short}}</span></td>
+      <td class="nowrap">{{.Due}}{{if .Left}}<span class="note"><span class="tag c-{{.LeftClass}}">{{.Left}}</span></span>{{end}}</td>
+      <td><span class="chip c-{{.StatusClass}}">{{.Status}}</span><span class="note">{{.Note}}</span></td>
+      <td>{{.Covers}}</td>
+      <td class="muted">{{.Must}}</td>
     </tr>{{end}}</tbody>
   </table></div>
 </section>
@@ -670,11 +761,11 @@ const reportHTML = reportIcons + `<!doctype html>
         <dt>Circular</dt><dd>SAMA Circular No. 482021280, dated 1448/03/14 H (27 August 2026): <strong>{{.Circular.Title}}</strong></dd>
         <dt>Distribution</dt><dd>{{.Circular.Distribution}}</dd>
       </dl>
-      <p class="hint">Unofficial translation by the author. The circular's title, distribution and clause texts are quoted from the author's unofficial English translation; the official text is the Arabic circular. The labels "Clause 1–4" and "2a/2b" are Hasr's; the circular numbers its clauses First to Fourth and does not number Clause 2's two items.</p>
+      <p class="hint">Unofficial translation by the author. The circular's title, distribution and clause texts are quoted from the author's unofficial English translation; the official text is the Arabic circular. The labels "Clause 1–4" and "2a/2b" are Hasr's; the circular numbers its clauses First to Fourth (Clause 1 = <span lang="ar" dir="rtl">أولًا</span>, Clause 2 = <span lang="ar" dir="rtl">ثانيًا</span>, Clause 3 = <span lang="ar" dir="rtl">ثالثًا</span>, Clause 4 = <span lang="ar" dir="rtl">رابعًا</span>) and does not number Clause 2's two items.</p>
       <p class="leadline">{{.Circular.Lead}}</p>
       {{range .Clauses}}
       <div class="clausetext" id="sama-clause-{{.N}}">
-        <h3><span class="tag c-clause">Clause {{.N}}</span> {{.Title}}</h3>
+        <h3><span class="tag c-clause">Clause {{.N}}</span><span class="ar" lang="ar" dir="rtl">{{.Ar}}</span> {{.Title}}</h3>
         <blockquote class="quote"><p>{{.Text}}</p>{{if .Items}}<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>{{end}}</blockquote>
         <div class="two">
           <div><h4>What Hasr provides</h4><ul>{{range .Provides}}<li>{{.}}</li>{{end}}</ul></div>
@@ -918,6 +1009,8 @@ details[open]>summary .chev{transform:rotate(90deg)}
 ul.limits{list-style:none;padding:0}
 .limits li{display:flex;gap:10px;align-items:baseline;margin:6px 0}
 .coverage td:first-child{min-width:200px}
+.cl{display:inline-flex;align-items:center;gap:8px}
+.ar{font-family:"Geeza Pro","Noto Sans Arabic","SF Arabic","Segoe UI",Tahoma,sans-serif;color:var(--accent);font-weight:600;font-size:14px}
 .coverage .info{margin-left:4px}
 .values{min-width:720px}.values td:first-child{width:260px}
 th.area{width:120px}th.offer{width:200px}
